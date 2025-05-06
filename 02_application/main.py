@@ -304,12 +304,17 @@ class CrewAIDocumentProcessor:
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = base_url
         self.model = model
-        self.agents_yaml_path = agents_yaml_path
-        self.tasks_yaml_path = tasks_yaml_path
+
+        # Ensure full paths for YAML files
+        self.agents_yaml_path = os.path.abspath(agents_yaml_path)
+        self.tasks_yaml_path = os.path.abspath(tasks_yaml_path)
+
+        print(f"Using agents YAML path: {self.agents_yaml_path}")
+        print(f"Using tasks YAML path: {self.tasks_yaml_path}")
 
         # Load agents and tasks configurations
-        self.agents_config = self._load_yaml_file(agents_yaml_path)
-        self.tasks_config = self._load_yaml_file(tasks_yaml_path)
+        self.agents_config = self._load_yaml_file(self.agents_yaml_path)
+        self.tasks_config = self._load_yaml_file(self.tasks_yaml_path)
 
         # Initialize LLM
         self._initialize_llm()
@@ -1413,17 +1418,30 @@ def get_document_processor():
             f"Unable to initialize OpenAI document processor: {e}. Please configure an OpenAI API key in the Settings tab.")
 
 
-def load_yaml_file(file_path: str) -> Dict[str, Any]:
-    """Load YAML file."""
+def _load_yaml_file(self, file_path: str) -> Dict[str, Any]:
+    """Load YAML configuration file."""
     print(f"Loading YAML file: {file_path}")
-    try:
-        with open(file_path, 'r') as file:
-            data = yaml.safe_load(file)
-        print(f"Successfully loaded YAML file: {file_path}")
-        return data
-    except Exception as e:
-        print(f"Error loading YAML file {file_path}: {e}")
-        return {}
+
+    # Try multiple possible locations
+    possible_paths = [
+        file_path,  # Try the path as given
+        os.path.join("/home/cdsw/02_application", os.path.basename(file_path)),  # Try in /home/cdsw/02_application/
+        os.path.join(os.getcwd(), file_path)  # Try in current directory
+    ]
+
+    for path in possible_paths:
+        try:
+            print(f"Attempting to load from: {path}")
+            with open(path, 'r') as file:
+                data = yaml.safe_load(file)
+            print(f"Successfully loaded YAML file from: {path}")
+            return data
+        except Exception as e:
+            print(f"Error loading YAML file {path}: {e}")
+
+    # If all attempts fail, return empty dict
+    print(f"Failed to load YAML file from all attempted locations")
+    return {}
 
 
 def process_documents():
