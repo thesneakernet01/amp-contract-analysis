@@ -1,16 +1,19 @@
 import os
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import chromadb
 from langchain_openai import ChatOpenAI
+from crewai.tools import BaseTool
 
 
-class ChromaDBRetrievalTool:
+class ChromaDBRetrievalTool(BaseTool):
     """Tool for retrieving documents from ChromaDB."""
+
+    name = "ChromaDBRetrievalTool"
+    description = "Retrieves documents from ChromaDB based on queries"
 
     def __init__(self, db_path: str = "/home/cdsw/02_application/chromadb", collection_name: str = "document_chunks"):
         """Initialize the ChromaDB retrieval tool."""
-        self.name = "ChromaDBRetrievalTool"
-        self.description = "Retrieves documents from ChromaDB based on queries"
+        super().__init__()
         self.db_path = db_path
         self.collection_name = collection_name
 
@@ -43,7 +46,7 @@ class ChromaDBRetrievalTool:
                     embedding_function=ef
                 )
 
-    def __call__(self, query: str, n_results: int = 5) -> str:
+    def _execute(self, query: str, n_results: int = 5) -> str:
         """Run the tool to retrieve documents from ChromaDB."""
         try:
             self._initialize()
@@ -75,19 +78,21 @@ class ChromaDBRetrievalTool:
             return f"Error retrieving documents: {str(e)}"
 
 
-class OllamaAnalysisTool:
+class OllamaAnalysisTool(BaseTool):
     """Tool for analyzing text using OpenAI (renamed from Ollama for compatibility with YAML)."""
+
+    name = "OllamaAnalysisTool"
+    description = "Analyzes text using OpenAI LLM"
 
     def __init__(self, max_length: int = 5000, model: str = "gpt-4o"):
         """Initialize the analysis tool."""
-        self.name = "OllamaAnalysisTool"
-        self.description = "Analyzes text using OpenAI LLM"
+        super().__init__()
         self.max_length = max_length
         self.model = model
         self.text_to_analyze = None
         self.current_task = None
 
-    def __call__(self, query: str = None) -> str:
+    def _execute(self, query: str = None) -> str:
         """Run the analysis tool."""
         # Get text from instance attribute if available
         text = self.text_to_analyze or query
