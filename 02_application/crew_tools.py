@@ -2,11 +2,43 @@ import os
 from typing import Dict, List, Any, Optional
 import chromadb
 from langchain_openai import ChatOpenAI
+from crewai.tools import Tool
+
+# Global variables to store text and task for analysis tool
+analysis_text = None
+analysis_task = None
 
 
-# Simplified tools for CrewAI compatibility
-# Instead of using inheritance, we'll create simple functions that can be wrapped by CrewAI tools
+# Helper functions that will be used by the main application
+def set_text_for_analysis(text, task=None):
+    """Set text and task for analysis."""
+    global analysis_text, analysis_task
+    analysis_text = text
+    analysis_task = task
+    print(f"Set text for analysis, task: {task}")
 
+
+def get_text_for_analysis():
+    """Get text for analysis."""
+    global analysis_text
+    return analysis_text
+
+
+def get_task_for_analysis():
+    """Get task for analysis."""
+    global analysis_task
+    return analysis_task
+
+
+def reset_analysis_data():
+    """Reset text and task for analysis."""
+    global analysis_text, analysis_task
+    analysis_text = None
+    analysis_task = None
+    print("Reset analysis data")
+
+
+# Functions for tools
 def search_chromadb(query: str, db_path: str = "/home/cdsw/02_application/chromadb",
                     collection_name: str = "document_chunks", n_results: int = 5) -> str:
     """Search for documents in ChromaDB."""
@@ -63,10 +95,20 @@ def search_chromadb(query: str, db_path: str = "/home/cdsw/02_application/chroma
         return f"Error retrieving documents: {str(e)}"
 
 
-def analyze_text(text: str, task: str = "analyze", model: str = "gpt-4o", max_length: int = 5000) -> str:
+def analyze_text(query: str = None) -> str:
     """Analyze text using OpenAI."""
+    global analysis_text, analysis_task
+
+    # Get text from global variable if available
+    text = analysis_text or query
+    task = analysis_task or "analyze"
+
+    if not text:
+        return "No text provided for analysis"
+
     try:
         # Truncate text if needed
+        max_length = 5000
         truncated_text = text[:max_length] if len(text) > max_length else text
 
         # Get API key from environment
@@ -75,6 +117,16 @@ def analyze_text(text: str, task: str = "analyze", model: str = "gpt-4o", max_le
             raise ValueError("No OpenAI API key found in environment")
 
         # Initialize LLM
+        model = "gpt-4o"  # Default model
+        try:
+            # Try to get model from environment
+            from main import get_document_processor
+            processor = get_document_processor()
+            if hasattr(processor, 'model'):
+                model = processor.model
+        except:
+            pass
+
         llm = ChatOpenAI(
             api_key=api_key,
             model=model,
@@ -121,66 +173,79 @@ def analyze_text(text: str, task: str = "analyze", model: str = "gpt-4o", max_le
 
         # Get response
         response = llm.invoke(messages)
+
+        # Reset the text to analyze to avoid memory issues
+        reset_analysis_data()
+
         return response.content
 
     except Exception as e:
         print(f"Text analysis error: {e}")
+        # Reset on error too
+        reset_analysis_data()
         return f"Analysis failed: {str(e)}"
 
 
-# Global variables to store text and task for analysis tool
-analysis_text = None
-analysis_task = None
+# Create actual tool instances
+chromadb_tool = Tool(
+    name="ChromaDBRetrievalTool",
+    description="Retrieves documents from ChromaDB based on queries",
+    func=search_chromadb
+)
+
+analysis_tool = Tool(
+    name="OllamaAnalysisTool",
+    description="Analyzes text using OpenAI LLM",
+    func=analyze_text
+)
 
 
-# Helper functions that will be used by the main application
-def set_text_for_analysis(text, task=None):
-    """Set text and task for analysis."""
-    global analysis_text, analysis_task
-    analysis_text = text
-    analysis_task = task
-    print(f"Set text for analysis, task: {task}")
+# Wrapper classes for backward compatibility with main.py
+class ChromaDBRetrievalTool:
+    """Backward compatibility wrapper for ChromaDBRetrievalTool."""
+
+    def __init__(self, db_path: str = "/home/cdsw/02_application/chromadb", collection_name: str = "document_chunks",
+                 **kwargs):
+        """Initialize the ChromaDB retrieval tool wrapper."""
+        self.name = "ChromaDBRetrievalTool"
+        self.description = "Retrieves documents from ChromaDB based on queries"
+        self.db_path = db_path
+        self.collection_name = collection_name
+        # This is the actual CrewAI tool
+        self.tool = Tool(
+            name=self.name,
+            description=self.description,
+            func=lambda query: search_chromadb(query, db_path=db_path, collection_name=collection_name)
+        )
+
+    # Allow using this object as a CrewAI tool directly
+    def __getattr__(self, name):
+        return getattr(self.tool, name)
 
 
-def get_text_for_analysis():
-    """Get text for analysis."""
-    global analysis_text
-    return analysis_text
+class OllamaAnalysisTool:
+    """Backward compatibility wrapper for OllamaAnalysisTool."""
 
+    def __init__(self, max_length: int = 5000, model: str = "gpt-4o", **kwargs):
+        """Initialize the analysis tool wrapper."""
+        self.name = "OllamaAnalysisTool"
+        self.description = "Analyzes text using OpenAI LLM"
+        self.max_length = max_length
+        self.model = model
+        self.text_to_analyze = None
+        self.current_task = None
+        # This is the actual CrewAI tool
+        self.tool = analysis_tool
 
-def get_task_for_analysis():
-    """Get task for analysis."""
-    global analysis_task
-    return analysis_task
+    # Add setters for compatibility with main.py
+    def set_text(self, text, task=None):
+        """Set text and task for analysis."""
+        set_text_for_analysis(text, task)
 
+    def reset(self):
+        """Reset text and task for analysis."""
+        reset_analysis_data()
 
-def reset_analysis_data():
-    """Reset text and task for analysis."""
-    global analysis_text, analysis_task
-    analysis_text = None
-    analysis_task = None
-    print("Reset analysis data")
-
-
-# Functions that will be wrapped by CrewAI tools
-def chromadb_tool(query: str) -> str:
-    """Tool function for CrewAI to search ChromaDB."""
-    return search_chromadb(query)
-
-
-def analysis_tool(query: str = None) -> str:
-    """Tool function for CrewAI to analyze text."""
-    global analysis_text, analysis_task
-    text = analysis_text or query
-    task = analysis_task or "analyze"
-
-    if not text:
-        return "No text provided for analysis"
-
-    result = analyze_text(text, task)
-
-    # Reset after use
-    analysis_text = None
-    analysis_task = None
-
-    return result
+    # Allow using this object as a CrewAI tool directly
+    def __getattr__(self, name):
+        return getattr(self.tool, name)
