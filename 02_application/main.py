@@ -811,132 +811,128 @@ class CrewAIDocumentProcessor:
         return text
 
     def summarize(self, text: str, max_length: int = 2500) -> str:
-        """Summarize text directly without using LLM."""
+        """Summarize text using CrewAI with robust fallback."""
         print(f"Summarizing text, length: {len(text)} characters")
 
         # Limit text to avoid token limits
         truncated_text = text[:max_length * 2] if len(text) > max_length * 2 else text
-        text_sample = truncated_text.lower()
 
-        # Create a rule-based summary
-        summary = ""
+        try:
+            # First attempt: Use the CrewAI approach
+            try:
+                # Load task configuration
+                if "summarize_document" not in self.tasks_config:
+                    print("Task 'summarize_document' not found in configuration, using fallback")
+                    raise ValueError("Task configuration not found")
 
-        # Detect document type
-        doc_type = "legal document"
-        if "agreement" in text_sample:
-            doc_type = "agreement"
-        elif "contract" in text_sample:
-            doc_type = "contract"
-        elif "amendment" in text_sample:
-            doc_type = "amendment"
-        elif "policy" in text_sample:
-            doc_type = "policy"
-        elif "memorandum" in text_sample:
-            doc_type = "memorandum"
+                task_config = self.tasks_config["summarize_document"]
 
-        # Identify parties
-        parties = []
-        party_indicators = ["between", "party", "parties", "agreement between", "by and between"]
-        for indicator in party_indicators:
-            if indicator in text_sample:
-                # Find the text after the indicator
-                pos = text_sample.find(indicator) + len(indicator)
-                excerpt = text_sample[pos:pos + 100]
-                if "and" in excerpt:
-                    parties = ["Party A", "Party B"]
-                    break
+                # Get agent type
+                agent_type = task_config.get("agent", "document_summarizer")
 
-        # Try to find more specific party names
-        party_name_indicators = ["inc.", "llc", "ltd", "corporation", "company"]
-        potential_names = re.findall(r'[A-Z][a-zA-Z\s,\.]+(?:' + '|'.join(party_name_indicators) + ')', truncated_text)
-        if potential_names:
-            parties = [potential_names[0]]
-            if len(potential_names) > 1:
-                parties.append(potential_names[1])
+                # Get or create agent
+                if agent_type not in self.agents:
+                    self.agents[agent_type] = self._create_agent(agent_type)
 
-        # Create the summary introduction
-        summary += f"This {doc_type} "
-        if parties:
-            if len(parties) == 1:
-                summary += f"involves {parties[0]}"
+                # Set the text in the tool instead of in the description
+                self._set_tool_data(self.agents[agent_type], truncated_text, "summarize")
+
+                # Create modified description WITHOUT the doc_text
+                description = task_config.get("description", "")
+                # Remove {doc_text} placeholder and replace with instruction to use the tool
+                description = description.replace("{doc_text}",
+                                                  "[Use the OllamaAnalysisTool to analyze the provided document]")
+                if "{max_length}" in description:
+                    description = description.replace("{max_length}", str(max_length))
+
+                # Create task without context
+                summarize_task = Task(
+                    description=description,
+                    expected_output=task_config.get("expected_output", ""),
+                    agent=self.agents[agent_type]
+                )
+
+                # Create crew for summarization
+                crew = Crew(
+                    agents=[self.agents[agent_type]],
+                    tasks=[summarize_task],
+                    verbose=True,
+                    process=Process.sequential
+                )
+
+                # Execute the crew
+                result = crew.kickoff()
+
+                # Reset tool data to avoid memory issues
+                self._reset_tool_data(self.agents[agent_type])
+
+                # Convert CrewOutput to string
+                summary_text = str(result) if hasattr(result, '__str__') else None
+
+                print(f"CrewAI summary length: {len(summary_text) if summary_text else 0}")
+
+                # Check if the summary looks valid
+                if not summary_text or len(summary_text) < 50 or "I don't have the capability" in summary_text:
+                    print("CrewAI summary appears invalid, using fallback")
+                    raise ValueError("Invalid summary from CrewAI")
+
+                return summary_text
+
+            except Exception as e:
+                print(f"CrewAI summarization failed, using fallback: {e}")
+                raise e  # Re-raise to trigger fallback
+
+        except Exception as e:
+            print(f"Using fallback summarization: {e}")
+
+            # Fallback method: Simple rule-based summary
+            text_sample = truncated_text.lower()
+            summary = ""
+
+            # Detect document type
+            doc_type = "legal document"
+            if "agreement" in text_sample:
+                doc_type = "agreement"
+            elif "contract" in text_sample:
+                doc_type = "contract"
+            elif "amendment" in text_sample:
+                doc_type = "amendment"
+            elif "policy" in text_sample:
+                doc_type = "policy"
+            elif "memorandum" in text_sample:
+                doc_type = "memorandum"
+
+            # Create a simple summary introduction
+            summary = f"This document appears to be a {doc_type} that establishes legal rights and obligations.\n\n"
+
+            # Key provisions
+            summary += "The document likely addresses:\n\n"
+            provisions = []
+
+            if "term" in text_sample or "duration" in text_sample:
+                provisions.append("Term/Duration")
+
+            if "payment" in text_sample or "compensation" in text_sample:
+                provisions.append("Payment Terms")
+
+            if "terminat" in text_sample:
+                provisions.append("Termination Provisions")
+
+            if "confidential" in text_sample:
+                provisions.append("Confidentiality")
+
+            if "intellectual property" in text_sample or "copyright" in text_sample:
+                provisions.append("Intellectual Property")
+
+            if provisions:
+                for provision in provisions:
+                    summary += f"- {provision}\n"
             else:
-                summary += f"is between {parties[0]} and {parties[1]}"
-        else:
-            summary += "establishes a legal relationship between the involved parties"
-        summary += ".\n\n"
+                summary += "- Various legal terms and conditions\n"
 
-        # Look for the purpose/subject
-        purpose = ""
-        purpose_indicators = ["purpose", "subject", "whereas", "recitals", "background"]
-        for indicator in purpose_indicators:
-            if indicator in text_sample:
-                # Find the paragraph containing this indicator
-                paragraphs = truncated_text.split('\n\n')
-                for paragraph in paragraphs:
-                    if indicator in paragraph.lower():
-                        purpose = paragraph.strip()
-                        break
-                if purpose:
-                    break
+            summary += "\nNote: This is an automated summary generated by the fallback system. For a comprehensive understanding, please consult a qualified legal professional."
 
-        if purpose:
-            # Trim it down
-            if len(purpose) > 200:
-                purpose = purpose[:200] + "..."
-            summary += f"Purpose: {purpose}\n\n"
-
-        # Key provisions
-        summary += "Key provisions include:\n\n"
-        provisions = []
-
-        if "term" in text_sample or "duration" in text_sample:
-            provisions.append("Term/Duration")
-
-        if "payment" in text_sample or "compensation" in text_sample or "fee" in text_sample:
-            provisions.append("Payment Terms")
-
-        if "terminat" in text_sample:
-            provisions.append("Termination Provisions")
-
-        if "confidential" in text_sample:
-            provisions.append("Confidentiality Requirements")
-
-        if "intellectual property" in text_sample or "copyright" in text_sample or "patent" in text_sample:
-            provisions.append("Intellectual Property")
-
-        if "indemn" in text_sample:
-            provisions.append("Indemnification")
-
-        if "warranty" in text_sample or "warranties" in text_sample:
-            provisions.append("Warranties")
-
-        if "represent" in text_sample:
-            provisions.append("Representations")
-
-        if "govern" in text_sample and ("law" in text_sample or "jurisdiction" in text_sample):
-            provisions.append("Governing Law")
-
-        if "dispute" in text_sample or "arbitration" in text_sample or "mediation" in text_sample:
-            provisions.append("Dispute Resolution")
-
-        if provisions:
-            for provision in provisions:
-                summary += f"- {provision}\n"
-        else:
-            summary += "- Various legal terms and conditions\n"
-
-        # Look for dates
-        summary += "\n"
-        date_matches = re.findall(
-            r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b',
-            truncated_text)
-        if date_matches:
-            summary += f"The document includes the date: {date_matches[0]}.\n"
-
-        # Disclaimer
-        summary += "\nNote: This is an automated summary and may not capture all legal nuances. For a comprehensive understanding, please consult a qualified legal professional."
-
-        return summary
+            return summary
 
     def analyze(self, text: str, analysis_depth: str = "detailed") -> str:
         """Analyze text directly without using LLM."""
