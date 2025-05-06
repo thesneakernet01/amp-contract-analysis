@@ -1,0 +1,87 @@
+analyze_document:
+  agent: legal_analyzer
+  context: []
+  description: "Conduct a {analysis_depth} legal analysis of the document with ID {doc_id}.
+    Identify key legal provisions, obligations, rights, liabilities, and legal risks.
+    Document text: {doc_text}"
+  expected_output: "Legal analysis report with key provisions, obligations, rights, and potential legal issues"
+
+compare_documents:
+  agent: document_comparer
+  context: []
+  description: "Compare the legal aspects of documents with IDs {doc_ids}, focusing on legal provisions, obligations, rights, definitions, liability clauses, and termination clauses.
+    Identify conflicting legal terms and differences in legal obligations.
+    New document text: {new_doc_text}
+    Existing document summaries: {existing_docs_text}"
+  expected_output: "Legal comparison report highlighting key legal similarities and differences"
+
+list_documents:
+  agent: document_processor
+  context: []
+  description: "List all legal documents in the vector database."
+  expected_output: "A list of all documents with their IDs and sources"
+
+process_document:
+  agent: document_processor
+  context: []
+  description: "Process the legal document with ID {doc_id} and prepare it for legal analysis.
+    Document text: {text}"
+  expected_output: "Processed document with extracted text and legal metadata"
+
+summarize_document:
+  agent: document_summarizer
+  context: []
+  description: "Summarize the legal document with the following text, focusing on the most important
+    legal information. Highlight key legal provisions, rights, and obligations.
+    Keep the summary concise with a maximum length of {max_length} words.
+    Document text: {doc_text}"
+  expected_output: "Concise legal summary highlighting key legal provisions and information"
+
+# New legal-specific tasks
+review_contract:
+  agent: contract_reviewer
+  context: []
+  description: "Review the contract with ID {doc_id}, focusing on obligations, liabilities, termination, indemnification, and warranties.
+    Identify potential legal risks and unbalanced provisions.
+    Document text: {doc_text}"
+  expected_output: "Contract review report with identified legal risks and recommendations"
+
+check_legal_compliance:
+  agent: legal_compliance_checker
+  context: []
+  description: "Check the document with ID {doc_id} for compliance with regulations in data privacy, consumer protection, employment, and intellectual property.
+    Identify potential compliance issues and gaps.
+    Document text: {doc_text}"
+  expected_output: "Compliance assessment report with identified issues and recommendations"
+
+extract_legal_definitions:
+  agent: legal_terminology_extractor
+  context: []
+  description: "Extract and explain all defined legal terms from the following document text.
+    Identify inconsistencies in definitions and potential legal ambiguities.
+    Document text: {doc_text}"
+  expected_output: "Glossary of legal terms with explanations and identified issues"
+
+assess_legal_risks:
+  agent: legal_risk_assessor
+  context: []
+  description: "Assess the legal risks in the following document text, categorizing them by contractual, regulatory, litigation, and intellectual property risks.
+    Provide a risk rating (High/Medium/Low) and potential mitigation strategies for each risk.
+    Document text: {doc_text}"
+  expected_output: "Legal risk assessment report with risk ratings and mitigation recommendations"
+
+compare_contract_terms:
+  agent: contract_reviewer
+  context: []
+  description: "Compare specific contract terms in documents with IDs {doc_ids}, focusing on payment terms, limitation of liability, warranties, termination rights, and intellectual property.
+    Identify which document has more favorable terms for each category.
+    Document text: {doc_texts}"
+  expected_output: "Contract terms comparison report with recommendations"
+
+identify_governing_law:
+  agent: legal_analyzer
+  context: []
+  description: "Identify and analyze the governing law and jurisdiction clauses in the following document text.
+    Assess potential impact of jurisdiction on enforceability and interpretation.
+    Document text: {doc_text}"
+  expected_output: "Analysis of governing law provisions and jurisdictional implications"

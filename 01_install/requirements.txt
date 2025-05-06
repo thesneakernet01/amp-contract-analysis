@@ -1,0 +1,12 @@
+streamlit
+PyPDF2
+python-docx
+chromadb
+sentence-transformers
+pyyaml
+langchain
+langchain-openai
+crewai
+matplotlib
+numpy
+pandas

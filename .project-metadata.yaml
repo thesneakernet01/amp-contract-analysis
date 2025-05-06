@@ -1,0 +1,48 @@
+name: Agentic Real-Time Well Monitoring
+description: "This AMP is a basic starting point for building Agentic AI Tools to monitor gas and oil sites and wells.  
+Providing manuals and other materials to the AI can help further make it's responses more intelligent and beneficial to 
+to helping reduce failures and costs associated with those unforseen failures."
+author: "Cloudera"
+specification_version: 1.0
+prototype_version: 1.0
+date: "2025-02-03"
+
+environment_variables:
+    OPENAI_API_KEY:
+      default: ""
+      description: "OPENAI API Key for LLM Calls"
+
+runtimes:
+  - editor: Jupyterlab
+    kernel: Python 3.12
+    edition: Standard
+
+tasks:
+  - type: create_job
+    name: Install dependencies
+    entity_label: install_deps
+    script: 01_install/requirements_installer.py
+    arguments: None
+    cpu: 2
+    memory: 8
+    short_summary: Create job to install project dependencies.
+    environment:
+      TASK_TYPE: CREATE/RUN_JOB
+
+  - type: run_job
+    entity_label: install_deps
+    short_summary: Running install dependencies job.
+    long_summary: >-
+      Running the job to install dependencies.  Note that this requires at least 2GB of memory
+
+  - type: start_application
+    name: Agentic Contract Analysis App
+    short_summary: Creates an application to serve the backend application.
+    long_summary: Creates an application to serve the backend application.
+    subdomain: IntelligentOwl
+    script: 02_application/startup.py
+    cpu: 4
+    memory: 8
+    gpu: 1
+    environment_variables:
+      TASK_TYPE: START_APPLICATION
