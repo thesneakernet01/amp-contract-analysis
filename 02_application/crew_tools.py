@@ -1,23 +1,31 @@
 import os
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Annotated
 import chromadb
 from langchain_openai import ChatOpenAI
 from crewai.tools import BaseTool
+from pydantic import Field  # Import Field from pydantic
 
 
 class ChromaDBRetrievalTool(BaseTool):
     """Tool for retrieving documents from ChromaDB."""
 
-    name = "ChromaDBRetrievalTool"
-    description = "Retrieves documents from ChromaDB based on queries"
+    # Annotate class attributes with types
+    name: str = Field(default="ChromaDBRetrievalTool")
+    description: str = Field(default="Retrieves documents from ChromaDB based on queries")
+    db_path: str = Field(default="/home/cdsw/02_application/chromadb")
+    collection_name: str = Field(default="document_chunks")
 
-    def __init__(self, db_path: str = "/home/cdsw/02_application/chromadb", collection_name: str = "document_chunks"):
+    def __init__(self, db_path: str = "/home/cdsw/02_application/chromadb", collection_name: str = "document_chunks",
+                 **kwargs):
         """Initialize the ChromaDB retrieval tool."""
-        super().__init__()
+        # Set the attributes first
         self.db_path = db_path
         self.collection_name = collection_name
 
-        # Will be initialized on first use
+        # Then call super().__init__() with any remaining kwargs
+        super().__init__(**kwargs)
+
+        # Initialize private attributes
         self._client = None
         self._collection = None
 
@@ -81,14 +89,22 @@ class ChromaDBRetrievalTool(BaseTool):
 class OllamaAnalysisTool(BaseTool):
     """Tool for analyzing text using OpenAI (renamed from Ollama for compatibility with YAML)."""
 
-    name = "OllamaAnalysisTool"
-    description = "Analyzes text using OpenAI LLM"
+    # Annotate class attributes with types
+    name: str = Field(default="OllamaAnalysisTool")
+    description: str = Field(default="Analyzes text using OpenAI LLM")
+    max_length: int = Field(default=5000)
+    model: str = Field(default="gpt-4o")
 
-    def __init__(self, max_length: int = 5000, model: str = "gpt-4o"):
+    def __init__(self, max_length: int = 5000, model: str = "gpt-4o", **kwargs):
         """Initialize the analysis tool."""
-        super().__init__()
+        # Set the attributes first
         self.max_length = max_length
         self.model = model
+
+        # Then call super().__init__() with any remaining kwargs
+        super().__init__(**kwargs)
+
+        # Initialize non-model attributes
         self.text_to_analyze = None
         self.current_task = None
 
