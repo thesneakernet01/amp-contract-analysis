@@ -95,15 +95,85 @@ except Exception as e:
 class ChromaDBStorage:
     """Storage for document chunks and summaries in ChromaDB."""
 
-    Error
-    getting or creating
-    chunks
-    collection: 'ChromaDBStorage'
-    object
-    has
-    no
-    attribute
-    'ef'
+    def __init__(self, db_path: str = "/home/cdsw/02_application/chromadb", chunks_collection: str = "document_chunks",
+                 summaries_collection: str = "document_summaries"):
+        """Initialize ChromaDB storage."""
+        print(f"Initializing ChromaDB storage at {os.path.abspath(db_path)}")
+        print(f"Chunks collection: {chunks_collection}")
+        print(f"Summaries collection: {summaries_collection}")
+
+        self.db_path = db_path
+        self.chunks_collection_name = chunks_collection
+        self.summaries_collection_name = summaries_collection
+
+        # Create directory if it doesn't exist
+        os.makedirs(db_path, exist_ok=True)
+        print(f"ChromaDB directory exists: {os.path.exists(db_path)}")
+
+        # Initialize ChromaDB client
+        try:
+            print("Initializing ChromaDB client")
+            self.client = chromadb.PersistentClient(path=db_path)
+            print("ChromaDB client initialized")
+        except Exception as e:
+            print(f"Error initializing ChromaDB client: {e}")
+            raise
+
+        # Create embedding function - THIS MUST COME BEFORE CREATING COLLECTIONS
+        try:
+            from chromadb.utils import embedding_functions
+            print("Creating embedding function")
+            self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+            print("Embedding function created (using SentenceTransformers)")
+        except Exception as e:
+            print(f"Warning: Failed to load SentenceTransformer: {e}")
+            print("Falling back to DefaultEmbeddingFunction")
+            # Fallback to default embedding function if SentenceTransformer fails
+            from chromadb.utils import embedding functions
+            self.ef = embedding_functions.DefaultEmbeddingFunction()
+            print("Default embedding function created")
+
+        # Get or create chunks collection
+        try:
+            print(f"Getting chunks collection: {chunks_collection}")
+            try:
+                self.chunks_collection = self.client.get_collection(
+                    name=chunks_collection,
+                    embedding_function=self.ef
+                )
+                print(f"Retrieved existing chunks collection: {chunks_collection}")
+            except Exception as collection_get_error:
+                print(f"Collection not found, creating: {chunks_collection}")
+                self.chunks_collection = self.client.create_collection(
+                    name=chunks_collection,
+                    embedding_function=self.ef
+                )
+                print(f"Created new chunks collection: {chunks_collection}")
+        except Exception as e:
+            print(f"Error with chunks collection: {e}")
+            raise
+
+        # Get or create summaries collection
+        try:
+            print(f"Getting summaries collection: {summaries_collection}")
+            try:
+                self.summaries_collection = self.client.get_collection(
+                    name=summaries_collection,
+                    embedding_function=self.ef
+                )
+                print(f"Retrieved existing summaries collection: {summaries_collection}")
+            except Exception as collection_get_error:
+                print(f"Collection not found, creating: {summaries_collection}")
+                self.summaries_collection = self.client.create_collection(
+                    name=summaries_collection,
+                    embedding_function=self.ef
+                )
+                print(f"Created new summaries collection: {summaries_collection}")
+        except Exception as e:
+            print(f"Error with summaries collection: {e}")
+            raise
 
     def add_texts(self, texts: List[str], metadatas: List[Dict[str, Any]], ids: List[str]):
         """Add texts to the chunks collection."""
