@@ -54,7 +54,7 @@ class ChromaDBRetrievalTool(BaseTool):
                     embedding_function=ef
                 )
 
-    def _execute(self, query: str, n_results: int = 5) -> str:
+    def _run(self, query: str, n_results: int = 5) -> str:
         """Run the tool to retrieve documents from ChromaDB."""
         try:
             self._initialize()
@@ -108,7 +108,7 @@ class OllamaAnalysisTool(BaseTool):
         self.text_to_analyze = None
         self.current_task = None
 
-    def _execute(self, query: str = None) -> str:
+    def _run(self, query: str = None) -> str:
         """Run the analysis tool."""
         # Get text from instance attribute if available
         text = self.text_to_analyze or query
