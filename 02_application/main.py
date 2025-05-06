@@ -131,7 +131,7 @@ class ChromaDBStorage:
             print(f"Warning: Failed to load SentenceTransformer: {e}")
             print("Falling back to DefaultEmbeddingFunction")
             # Fallback to default embedding function if SentenceTransformer fails
-            from chromadb.utils import embedding functions
+            from chromadb.utils import embedding_functions  # Fixed this line
             self.ef = embedding_functions.DefaultEmbeddingFunction()
             print("Default embedding function created")
 
