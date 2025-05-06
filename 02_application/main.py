@@ -331,19 +331,21 @@ class CrewAIDocumentProcessor:
 
     def _load_yaml_file(self, file_path: str) -> Dict[str, Any]:
         """Load YAML configuration file with robust error handling."""
-        print(f"Loading YAML file: {file_path}")
+        # Always use absolute path
+        abs_path = os.path.abspath(file_path)
+        print(f"Loading YAML file: {abs_path}")
 
-        if not file_path or not os.path.exists(file_path):
-            print(f"YAML file not found at: {file_path}")
+        if not os.path.exists(abs_path):
+            print(f"YAML file not found at: {abs_path}")
             return {}
 
         try:
-            with open(file_path, 'r') as file:
+            with open(abs_path, 'r') as file:
                 data = yaml.safe_load(file)
-            print(f"Successfully loaded YAML file: {file_path}")
+            print(f"Successfully loaded YAML file: {abs_path}")
             return data
         except Exception as e:
-            print(f"Error loading YAML file {file_path}: {e}")
+            print(f"Error loading YAML file {abs_path}: {e}")
             return {}
 
     def _initialize_llm(self):
