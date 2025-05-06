@@ -1,19 +1,16 @@
-from langchain.tools import BaseTool
 import os
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import chromadb
 from langchain_openai import ChatOpenAI
 
 
-class ChromaDBRetrievalTool(BaseTool):
+class ChromaDBRetrievalTool:
     """Tool for retrieving documents from ChromaDB."""
 
-    name = "ChromaDBRetrievalTool"
-    description = "Retrieves documents from ChromaDB based on queries"
-
-    def __init__(self, db_path: str, collection_name: str):
+    def __init__(self, db_path: str = "/home/cdsw/02_application/chromadb", collection_name: str = "document_chunks"):
         """Initialize the ChromaDB retrieval tool."""
-        super().__init__()
+        self.name = "ChromaDBRetrievalTool"
+        self.description = "Retrieves documents from ChromaDB based on queries"
         self.db_path = db_path
         self.collection_name = collection_name
 
@@ -46,7 +43,7 @@ class ChromaDBRetrievalTool(BaseTool):
                     embedding_function=ef
                 )
 
-    def _run(self, query: str, n_results: int = 5) -> str:
+    def __call__(self, query: str, n_results: int = 5) -> str:
         """Run the tool to retrieve documents from ChromaDB."""
         try:
             self._initialize()
@@ -78,21 +75,19 @@ class ChromaDBRetrievalTool(BaseTool):
             return f"Error retrieving documents: {str(e)}"
 
 
-class OllamaAnalysisTool(BaseTool):
+class OllamaAnalysisTool:
     """Tool for analyzing text using OpenAI (renamed from Ollama for compatibility with YAML)."""
-
-    name = "OllamaAnalysisTool"
-    description = "Analyzes text using OpenAI LLM"
 
     def __init__(self, max_length: int = 5000, model: str = "gpt-4o"):
         """Initialize the analysis tool."""
-        super().__init__()
+        self.name = "OllamaAnalysisTool"
+        self.description = "Analyzes text using OpenAI LLM"
         self.max_length = max_length
         self.model = model
         self.text_to_analyze = None
         self.current_task = None
 
-    def _run(self, query: str = None) -> str:
+    def __call__(self, query: str = None) -> str:
         """Run the analysis tool."""
         # Get text from instance attribute if available
         text = self.text_to_analyze or query
