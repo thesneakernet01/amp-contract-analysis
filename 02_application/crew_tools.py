@@ -2,7 +2,6 @@ import os
 from typing import Dict, List, Any, Optional
 import chromadb
 from langchain_openai import ChatOpenAI
-# Import the tool decorator from crewai.tools
 from crewai.tools import tool
 
 # Global variables to store text and task for analysis tool
@@ -39,7 +38,7 @@ def reset_analysis_data():
     print("Reset analysis data")
 
 
-# Define tools using the @tool decorator as per official documentation
+# Define tools using the @tool decorator
 @tool("ChromaDB Search Tool")
 def search_chromadb(query: str, db_path: str = "/home/cdsw/02_application/chromadb",
                     collection_name: str = "document_chunks", n_results: int = 5) -> str:
@@ -118,6 +117,7 @@ def search_chromadb(query: str, db_path: str = "/home/cdsw/02_application/chroma
     except Exception as e:
         print(f"ChromaDB search error: {e}")
         return f"Error retrieving documents: {str(e)}"
+
 
 @tool("Document Analysis Tool")
 def analyze_text(query: str = None) -> str:
@@ -218,6 +218,7 @@ def analyze_text(query: str = None) -> str:
         return f"Analysis failed: {str(e)}"
 
 
+# Wrapper classes for backward compatibility with main.py
 class ChromaDBRetrievalTool:
     """Backward compatibility wrapper for ChromaDBRetrievalTool."""
 
@@ -230,13 +231,23 @@ class ChromaDBRetrievalTool:
         self.collection_name = collection_name
 
         # Ensure the DB path exists during initialization
-        import os
         os.makedirs(db_path, exist_ok=True)
         print(f"Initialized ChromaDBRetrievalTool with path: {os.path.abspath(db_path)}")
+
+        # Test write permissions
+        try:
+            test_file = os.path.join(db_path, "permission_test.txt")
+            with open(test_file, "w") as f:
+                f.write("Testing write permissions")
+            os.remove(test_file)
+            print(f"ChromaDBRetrievalTool: Verified write permissions for {db_path}")
+        except Exception as e:
+            print(f"ChromaDBRetrievalTool: WARNING - Cannot write to {db_path}: {e}")
 
     # For backward compatibility
     def __call__(self, query):
         return search_chromadb(query, db_path=self.db_path, collection_name=self.collection_name)
+
 
 class OllamaAnalysisTool:
     """Backward compatibility wrapper for OllamaAnalysisTool."""
