@@ -50,8 +50,11 @@ import docx
 import PyPDF2
 from crewai import Agent, Task, Crew, Process
 from langchain_openai import ChatOpenAI
-from crew_tools import search_chromadb, analyze_text, ChromaDBRetrievalTool, OllamaAnalysisTool
-
+from crew_tools import (
+    ChromaDBStorage, get_storage, add_texts, add_summary,
+    search_chunks, search_summaries, get_all_summaries, get_summary,
+    ChromaDBRetrievalTool, analyze_text, search_chromadb
+)
 # Add these imports for the SentenceTransformer fix
 import os
 import sys
