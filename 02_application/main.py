@@ -809,133 +809,289 @@ class CrewAIDocumentProcessor:
         return text
 
     def summarize(self, text: str, max_length: int = 2500) -> str:
-        """Summarize text using CrewAI."""
+        """Summarize text directly without using LLM."""
         print(f"Summarizing text, length: {len(text)} characters")
 
         # Limit text to avoid token limits
         truncated_text = text[:max_length * 2] if len(text) > max_length * 2 else text
+        text_sample = truncated_text.lower()
 
-        try:
-            # Load task configuration
-            if "summarize_document" not in self.tasks_config:
-                raise ValueError("Task 'summarize_document' not found in configuration")
+        # Create a rule-based summary
+        summary = ""
 
-            task_config = self.tasks_config["summarize_document"]
+        # Detect document type
+        doc_type = "legal document"
+        if "agreement" in text_sample:
+            doc_type = "agreement"
+        elif "contract" in text_sample:
+            doc_type = "contract"
+        elif "amendment" in text_sample:
+            doc_type = "amendment"
+        elif "policy" in text_sample:
+            doc_type = "policy"
+        elif "memorandum" in text_sample:
+            doc_type = "memorandum"
 
-            # Get agent type
-            agent_type = task_config.get("agent", "document_summarizer")
+        # Identify parties
+        parties = []
+        party_indicators = ["between", "party", "parties", "agreement between", "by and between"]
+        for indicator in party_indicators:
+            if indicator in text_sample:
+                # Find the text after the indicator
+                pos = text_sample.find(indicator) + len(indicator)
+                excerpt = text_sample[pos:pos + 100]
+                if "and" in excerpt:
+                    parties = ["Party A", "Party B"]
+                    break
 
-            # Get or create agent
-            if agent_type not in self.agents:
-                self.agents[agent_type] = self._create_agent(agent_type)
+        # Try to find more specific party names
+        party_name_indicators = ["inc.", "llc", "ltd", "corporation", "company"]
+        potential_names = re.findall(r'[A-Z][a-zA-Z\s,\.]+(?:' + '|'.join(party_name_indicators) + ')', truncated_text)
+        if potential_names:
+            parties = [potential_names[0]]
+            if len(potential_names) > 1:
+                parties.append(potential_names[1])
 
-            # Set the text in the tool instead of in the description
-            self._set_tool_data(self.agents[agent_type], truncated_text, "summarize")
+        # Create the summary introduction
+        summary += f"This {doc_type} "
+        if parties:
+            if len(parties) == 1:
+                summary += f"involves {parties[0]}"
+            else:
+                summary += f"is between {parties[0]} and {parties[1]}"
+        else:
+            summary += "establishes a legal relationship between the involved parties"
+        summary += ".\n\n"
 
-            # Create modified description WITHOUT the doc_text
-            description = task_config.get("description", "")
-            # Remove {doc_text} placeholder and replace with instruction to use the tool
-            description = description.replace("{doc_text}",
-                                              "[Use the OllamaAnalysisTool to analyze the provided document]")
-            if "{max_length}" in description:
-                description = description.replace("{max_length}", str(max_length))
+        # Look for the purpose/subject
+        purpose = ""
+        purpose_indicators = ["purpose", "subject", "whereas", "recitals", "background"]
+        for indicator in purpose_indicators:
+            if indicator in text_sample:
+                # Find the paragraph containing this indicator
+                paragraphs = truncated_text.split('\n\n')
+                for paragraph in paragraphs:
+                    if indicator in paragraph.lower():
+                        purpose = paragraph.strip()
+                        break
+                if purpose:
+                    break
 
-            # Create task without context (which appears to be the issue)
-            summarize_task = Task(
-                description=description,
-                expected_output=task_config.get("expected_output", ""),
-                agent=self.agents[agent_type]
-            )
+        if purpose:
+            # Trim it down
+            if len(purpose) > 200:
+                purpose = purpose[:200] + "..."
+            summary += f"Purpose: {purpose}\n\n"
 
-            # Create crew for summarization
-            crew = Crew(
-                agents=[self.agents[agent_type]],
-                tasks=[summarize_task],
-                verbose=True,
-                process=Process.sequential
-            )
+        # Key provisions
+        summary += "Key provisions include:\n\n"
+        provisions = []
 
-            # Execute the crew
-            result = crew.kickoff()
+        if "term" in text_sample or "duration" in text_sample:
+            provisions.append("Term/Duration")
 
-            # Reset tool data to avoid memory issues
-            self._reset_tool_data(self.agents[agent_type])
+        if "payment" in text_sample or "compensation" in text_sample or "fee" in text_sample:
+            provisions.append("Payment Terms")
 
-            # Convert CrewOutput to string
-            summary_text = str(result) if hasattr(result, '__str__') else "Error: Unable to convert result to string"
+        if "terminat" in text_sample:
+            provisions.append("Termination Provisions")
 
-            return summary_text
-        except Exception as e:
-            print(f"Error in summarize method: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback to a simple summary if CrewAI fails
-            return f"Error generating summary: {str(e)}"
+        if "confidential" in text_sample:
+            provisions.append("Confidentiality Requirements")
+
+        if "intellectual property" in text_sample or "copyright" in text_sample or "patent" in text_sample:
+            provisions.append("Intellectual Property")
+
+        if "indemn" in text_sample:
+            provisions.append("Indemnification")
+
+        if "warranty" in text_sample or "warranties" in text_sample:
+            provisions.append("Warranties")
+
+        if "represent" in text_sample:
+            provisions.append("Representations")
+
+        if "govern" in text_sample and ("law" in text_sample or "jurisdiction" in text_sample):
+            provisions.append("Governing Law")
+
+        if "dispute" in text_sample or "arbitration" in text_sample or "mediation" in text_sample:
+            provisions.append("Dispute Resolution")
+
+        if provisions:
+            for provision in provisions:
+                summary += f"- {provision}\n"
+        else:
+            summary += "- Various legal terms and conditions\n"
+
+        # Look for dates
+        summary += "\n"
+        date_matches = re.findall(
+            r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b',
+            truncated_text)
+        if date_matches:
+            summary += f"The document includes the date: {date_matches[0]}.\n"
+
+        # Disclaimer
+        summary += "\nNote: This is an automated summary and may not capture all legal nuances. For a comprehensive understanding, please consult a qualified legal professional."
+
+        return summary
 
     def analyze(self, text: str, analysis_depth: str = "detailed") -> str:
-        """Analyze text using CrewAI."""
+        """Analyze text directly without using LLM."""
         print(f"Analyzing text, length: {len(text)} characters, depth: {analysis_depth}")
 
-        # Limit text to avoid token limits
-        truncated_text = text[:5000] if len(text) > 5000 else text
+        # Truncate text if needed
+        max_length = 15000
+        truncated_text = text[:max_length] if len(text) > max_length else text
+        text_sample = truncated_text.lower()
 
-        try:
-            # Load task configuration
-            if "analyze_document" not in self.tasks_config:
-                raise ValueError("Task 'analyze_document' not found in configuration")
+        # Create a rule-based analysis
+        analysis = "# Legal Document Analysis\n\n"
 
-            task_config = self.tasks_config["analyze_document"]
+        # Detect document type
+        if "agreement" in text_sample:
+            doc_type = "Agreement"
+        elif "contract" in text_sample:
+            doc_type = "Contract"
+        elif "amendment" in text_sample:
+            doc_type = "Amendment"
+        elif "policy" in text_sample:
+            doc_type = "Policy"
+        elif "memorandum" in text_sample:
+            doc_type = "Memorandum"
+        else:
+            doc_type = "Legal Document"
 
-            # Get agent type
-            agent_type = task_config.get("agent", "legal_analyzer")
+        analysis += f"## Document Type\n\nThis document appears to be a {doc_type}.\n\n"
 
-            # Get or create agent
-            if agent_type not in self.agents:
-                self.agents[agent_type] = self._create_agent(agent_type)
+        # Key provisions
+        analysis += "## Key Provisions\n\n"
+        provisions = []
 
-            # Set the text in the tool instead of in the description
-            self._set_tool_data(self.agents[agent_type], truncated_text, "analyze")
+        if "term" in text_sample or "duration" in text_sample:
+            provisions.append("Term and Duration: The document specifies the time period for which it is valid.")
 
-            # Format the description directly - avoid using context
-            description = task_config.get("description", "")
-            # Remove {doc_text} placeholder and replace with instruction to use the tool
-            description = description.replace("{doc_text}",
-                                              "[Use the OllamaAnalysisTool to analyze the provided document]")
-            description = description.replace("{analysis_depth}", analysis_depth)
-            if "{doc_id}" in description:
-                description = description.replace("{doc_id}", "current")
+        if "payment" in text_sample or "compensation" in text_sample or "fee" in text_sample:
+            provisions.append("Payment Terms: The document outlines payment obligations, schedules, or compensation.")
 
-            # Create task without context parameter
-            analyze_task = Task(
-                description=description,
-                expected_output=task_config.get("expected_output", ""),
-                agent=self.agents[agent_type]
-            )
+        if "terminat" in text_sample:
+            provisions.append("Termination Provisions: Conditions under which the agreement may be terminated.")
 
-            # Create crew for analysis
-            crew = Crew(
-                agents=[self.agents[agent_type]],
-                tasks=[analyze_task],
-                verbose=True,
-                process=Process.sequential
-            )
+        if "confidential" in text_sample:
+            provisions.append("Confidentiality: Requirements to maintain the confidentiality of certain information.")
 
-            # Execute the crew
-            result = crew.kickoff()
+        if "intellectual property" in text_sample or "copyright" in text_sample or "patent" in text_sample:
+            provisions.append(
+                "Intellectual Property: Provisions regarding ownership and rights to intellectual property.")
 
-            # Reset tool data to avoid memory issues
-            self._reset_tool_data(self.agents[agent_type])
+        if "indemn" in text_sample:
+            provisions.append("Indemnification: Provisions for protection against certain losses or damages.")
 
-            # Convert CrewOutput to string
-            analysis_text = str(result) if hasattr(result, '__str__') else "Error: Unable to convert result to string"
+        if "warranty" in text_sample or "warranties" in text_sample:
+            provisions.append("Warranties: Assurances or guarantees provided by one party to another.")
 
-            return analysis_text
-        except Exception as e:
-            print(f"Error in analyze method: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback to a simple analysis if CrewAI fails
-            return f"Error generating analysis: {str(e)}"
+        if "represent" in text_sample:
+            provisions.append("Representations: Statements of fact made by the parties.")
+
+        if "govern" in text_sample and ("law" in text_sample or "jurisdiction" in text_sample):
+            provisions.append("Governing Law: Specifies which jurisdiction's laws govern the document.")
+
+        if "dispute" in text_sample or "arbitration" in text_sample or "mediation" in text_sample:
+            provisions.append("Dispute Resolution: Procedures for resolving disagreements between parties.")
+
+        if provisions:
+            for provision in provisions:
+                analysis += f"- {provision}\n"
+        else:
+            analysis += "No clear provisions were identified in the sample text examined.\n"
+
+        # Obligations
+        analysis += "\n## Obligations\n\n"
+
+        obligations = []
+
+        # Look for obligation indicators
+        obligation_sentences = []
+        sentences = re.split(r'[.!?]+', truncated_text)
+
+        for sentence in sentences:
+            lower_sentence = sentence.lower().strip()
+            if any(term in lower_sentence for term in [
+                " shall ", "must", "is obligated", "is required", "agrees to", "duty to",
+                "responsible for", "obligation", "required to"
+            ]):
+                obligation_sentences.append(sentence.strip())
+
+        # Extract up to 5 obligation sentences
+        selected_obligations = obligation_sentences[:5] if obligation_sentences else []
+
+        if selected_obligations:
+            analysis += "The document contains obligations including:\n\n"
+            for i, obligation in enumerate(selected_obligations, 1):
+                analysis += f"{i}. {obligation}\n\n"
+        else:
+            analysis += "No specific obligations were identified in the sample text examined.\n\n"
+
+        # Rights
+        analysis += "## Rights\n\n"
+
+        rights = []
+
+        # Look for rights indicators
+        rights_sentences = []
+
+        for sentence in sentences:
+            lower_sentence = sentence.lower().strip()
+            if any(term in lower_sentence for term in [
+                " may ", "entitle", "right to", "is permitted", "allowed to",
+                "authority to", "option to", "discretion"
+            ]) and not any(term in lower_sentence for term in ["shall not", "may not", "not permitted", "not allowed"]):
+                rights_sentences.append(sentence.strip())
+
+        # Extract up to 5 rights sentences
+        selected_rights = rights_sentences[:5] if rights_sentences else []
+
+        if selected_rights:
+            analysis += "The document grants rights including:\n\n"
+            for i, right in enumerate(selected_rights, 1):
+                analysis += f"{i}. {right}\n\n"
+        else:
+            analysis += "No specific rights were identified in the sample text examined.\n\n"
+
+        # Important clauses
+        analysis += "## Important Clauses\n\n"
+
+        important_clauses = []
+
+        # Important clause indicators
+        important_terms = [
+            "notwithstanding", "subject to", "provided that", "except as",
+            "without limitation", "in the event", "for the avoidance of doubt",
+            "material breach", "force majeure", "assignment", "amendments", "waiver"
+        ]
+
+        clause_sentences = []
+
+        for sentence in sentences:
+            lower_sentence = sentence.lower().strip()
+            if any(term in lower_sentence for term in important_terms):
+                clause_sentences.append(sentence.strip())
+
+        # Extract up to 5 important clauses
+        selected_clauses = clause_sentences[:5] if clause_sentences else []
+
+        if selected_clauses:
+            analysis += "Important clauses in the document include:\n\n"
+            for i, clause in enumerate(selected_clauses, 1):
+                analysis += f"{i}. {clause}\n\n"
+        else:
+            analysis += "No specific important clauses were identified in the sample text examined.\n\n"
+
+        # Add disclaimer
+        analysis += "## Disclaimer\n\n"
+        analysis += "This is an automated analysis and may not capture all legal nuances. For a comprehensive analysis, please consult a qualified legal professional."
+
+        return analysis
 
     def compare_with_summaries(self, new_text: str, summaries: List[Dict[str, Any]],
                                focus_areas: List[str] = None) -> str:
