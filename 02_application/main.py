@@ -50,7 +50,7 @@ import docx
 import PyPDF2
 from crewai import Agent, Task, Crew, Process
 from langchain_openai import ChatOpenAI
-from crew_tools import ChromaDBRetrievalTool, OllamaAnalysisTool
+from crew_tools import search_chromadb, analyze_text, ChromaDBRetrievalTool, OllamaAnalysisTool
 
 # Add these imports for the SentenceTransformer fix
 import os
@@ -399,26 +399,11 @@ class CrewAIDocumentProcessor:
 
                     # Create the appropriate tool
                     if tool_name == "ChromaDBRetrievalTool":
-                        from crewai.tools import Tool
-                        from crew_tools import chromadb_tool
-
-                        # Create a CrewAI Tool using our function
-                        tools.append(Tool(
-                            name="ChromaDBRetrievalTool",
-                            description="Retrieves documents from ChromaDB based on queries",
-                            func=chromadb_tool
-                        ))
-
+                        # Use the search_chromadb function directly
+                        tools.append(search_chromadb)
                     elif tool_name == "OllamaAnalysisTool":
-                        from crewai.tools import Tool
-                        from crew_tools import analysis_tool
-
-                        # Create a CrewAI Tool using our function
-                        tools.append(Tool(
-                            name="OllamaAnalysisTool",
-                            description="Analyzes text using OpenAI LLM",
-                            func=analysis_tool
-                        ))
+                        # Use the analyze_text function directly
+                        tools.append(analyze_text)
 
         # Create agent
         try:

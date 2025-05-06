@@ -2,7 +2,8 @@ import os
 from typing import Dict, List, Any, Optional
 import chromadb
 from langchain_openai import ChatOpenAI
-from crewai.tools import Tool
+# Import the tool decorator from crewai.tools
+from crewai.tools import tool
 
 # Global variables to store text and task for analysis tool
 analysis_text = None
@@ -38,10 +39,21 @@ def reset_analysis_data():
     print("Reset analysis data")
 
 
-# Functions for tools
+# Define tools using the @tool decorator as per official documentation
+@tool("ChromaDB Search Tool")
 def search_chromadb(query: str, db_path: str = "/home/cdsw/02_application/chromadb",
                     collection_name: str = "document_chunks", n_results: int = 5) -> str:
-    """Search for documents in ChromaDB."""
+    """Search for documents in ChromaDB based on queries.
+
+    Args:
+        query: The search query
+        db_path: Path to ChromaDB
+        collection_name: Name of the collection
+        n_results: Number of results to return
+
+    Returns:
+        Formatted search results
+    """
     try:
         # Initialize client and collection
         client = chromadb.PersistentClient(path=db_path)
@@ -95,8 +107,16 @@ def search_chromadb(query: str, db_path: str = "/home/cdsw/02_application/chroma
         return f"Error retrieving documents: {str(e)}"
 
 
+@tool("Document Analysis Tool")
 def analyze_text(query: str = None) -> str:
-    """Analyze text using OpenAI."""
+    """Analyze text using OpenAI LLM.
+
+    Args:
+        query: Optional query text
+
+    Returns:
+        Analysis results
+    """
     global analysis_text, analysis_task
 
     # Get text from global variable if available
@@ -186,20 +206,6 @@ def analyze_text(query: str = None) -> str:
         return f"Analysis failed: {str(e)}"
 
 
-# Create actual tool instances
-chromadb_tool = Tool(
-    name="ChromaDBRetrievalTool",
-    description="Retrieves documents from ChromaDB based on queries",
-    func=search_chromadb
-)
-
-analysis_tool = Tool(
-    name="OllamaAnalysisTool",
-    description="Analyzes text using OpenAI LLM",
-    func=analyze_text
-)
-
-
 # Wrapper classes for backward compatibility with main.py
 class ChromaDBRetrievalTool:
     """Backward compatibility wrapper for ChromaDBRetrievalTool."""
@@ -211,16 +217,10 @@ class ChromaDBRetrievalTool:
         self.description = "Retrieves documents from ChromaDB based on queries"
         self.db_path = db_path
         self.collection_name = collection_name
-        # This is the actual CrewAI tool
-        self.tool = Tool(
-            name=self.name,
-            description=self.description,
-            func=lambda query: search_chromadb(query, db_path=db_path, collection_name=collection_name)
-        )
 
-    # Allow using this object as a CrewAI tool directly
-    def __getattr__(self, name):
-        return getattr(self.tool, name)
+    # For backward compatibility
+    def __call__(self, query):
+        return search_chromadb(query, db_path=self.db_path, collection_name=self.collection_name)
 
 
 class OllamaAnalysisTool:
@@ -232,10 +232,6 @@ class OllamaAnalysisTool:
         self.description = "Analyzes text using OpenAI LLM"
         self.max_length = max_length
         self.model = model
-        self.text_to_analyze = None
-        self.current_task = None
-        # This is the actual CrewAI tool
-        self.tool = analysis_tool
 
     # Add setters for compatibility with main.py
     def set_text(self, text, task=None):
@@ -246,6 +242,6 @@ class OllamaAnalysisTool:
         """Reset text and task for analysis."""
         reset_analysis_data()
 
-    # Allow using this object as a CrewAI tool directly
-    def __getattr__(self, name):
-        return getattr(self.tool, name)
+    # For backward compatibility
+    def __call__(self, query=None):
+        return analyze_text(query)
