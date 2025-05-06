@@ -57,6 +57,10 @@ import os
 import sys
 import logging
 
+# Define fixed paths for YAML files - HARDCODED FOR RELIABILITY
+AGENTS_YAML_PATH = "/home/cdsw/02_application/agents.yaml"
+TASKS_YAML_PATH = "/home/cdsw/02_application/tasks.yaml"
+
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -297,20 +301,24 @@ class CrewAIDocumentProcessor:
     def __init__(self,
                  api_key: str = None,
                  base_url: str = "https://api.openai.com/v1",
-                 model: str = "gpt-4o",
-                 agents_yaml_path: str = "/home/cdsw/02_application/agents.yaml",
-                 tasks_yaml_path: str = "/home/cdsw/02_application/tasks.yaml"):
-        """Initialize CrewAI document processor."""
+                 model: str = "gpt-4o"):
+        """Initialize CrewAI document processor with hardcoded YAML paths."""
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = base_url
         self.model = model
 
-        # Ensure full paths for YAML files
-        self.agents_yaml_path = os.path.abspath(agents_yaml_path)
-        self.tasks_yaml_path = os.path.abspath(tasks_yaml_path)
+        # Use hardcoded paths for YAML files
+        self.agents_yaml_path = AGENTS_YAML_PATH
+        self.tasks_yaml_path = TASKS_YAML_PATH
 
         print(f"Using agents YAML path: {self.agents_yaml_path}")
         print(f"Using tasks YAML path: {self.tasks_yaml_path}")
+
+        # Check and verify YAML files exist
+        if not os.path.exists(self.agents_yaml_path):
+            print(f"WARNING: Agents YAML file not found at {self.agents_yaml_path}")
+        if not os.path.exists(self.tasks_yaml_path):
+            print(f"WARNING: Tasks YAML file not found at {self.tasks_yaml_path}")
 
         # Load agents and tasks configurations
         self.agents_config = self._load_yaml_file(self.agents_yaml_path)
@@ -330,8 +338,13 @@ class CrewAIDocumentProcessor:
         )
 
     def _load_yaml_file(self, file_path: str) -> Dict[str, Any]:
-        """Load YAML configuration file."""
+        """Load YAML configuration file with robust error handling."""
         print(f"Loading YAML file: {file_path}")
+
+        if not file_path or not os.path.exists(file_path):
+            print(f"YAML file not found at: {file_path}")
+            return {}
+
         try:
             with open(file_path, 'r') as file:
                 data = yaml.safe_load(file)
@@ -1407,6 +1420,7 @@ def get_document_processor():
 
         # Create the processor
         print(f"Creating CrewAI processor with endpoint: {endpoint}, model: {model}")
+        # NOTE: Removed YAML paths from the constructor to use global constants
         return CrewAIDocumentProcessor(
             api_key=api_key,
             base_url=endpoint,
@@ -1418,30 +1432,26 @@ def get_document_processor():
             f"Unable to initialize OpenAI document processor: {e}. Please configure an OpenAI API key in the Settings tab.")
 
 
-def _load_yaml_file(self, file_path: str) -> Dict[str, Any]:
-    """Load YAML configuration file."""
+def load_yaml_file(file_path: str) -> Dict[str, Any]:
+    """Load YAML file."""
     print(f"Loading YAML file: {file_path}")
 
-    # Try multiple possible locations
-    possible_paths = [
-        file_path,  # Try the path as given
-        os.path.join("/home/cdsw/02_application", os.path.basename(file_path)),  # Try in /home/cdsw/02_application/
-        os.path.join(os.getcwd(), file_path)  # Try in current directory
-    ]
+    # Try standard absolute paths first
+    if not os.path.exists(file_path):
+        # Try with application directory
+        app_path = os.path.join("/home/cdsw/02_application", os.path.basename(file_path))
+        if os.path.exists(app_path):
+            file_path = app_path
+            print(f"Found YAML file at: {file_path}")
 
-    for path in possible_paths:
-        try:
-            print(f"Attempting to load from: {path}")
-            with open(path, 'r') as file:
-                data = yaml.safe_load(file)
-            print(f"Successfully loaded YAML file from: {path}")
-            return data
-        except Exception as e:
-            print(f"Error loading YAML file {path}: {e}")
-
-    # If all attempts fail, return empty dict
-    print(f"Failed to load YAML file from all attempted locations")
-    return {}
+    try:
+        with open(file_path, 'r') as file:
+            data = yaml.safe_load(file)
+        print(f"Successfully loaded YAML file: {file_path}")
+        return data
+    except Exception as e:
+        print(f"Error loading YAML file {file_path}: {e}")
+        return {}
 
 
 def process_documents():
@@ -1488,7 +1498,7 @@ def process_documents():
         print(f"Creating contracts folder at: {contracts_folder}")
         os.makedirs(contracts_folder, exist_ok=True)
         print(f"Created {contracts_folder} directory. Please place your legal documents there and run again.")
-        return
+        return None
 
     print(f"Using contracts folder: {os.path.abspath(contracts_folder)}")
     print(f"Current working directory: {os.getcwd()}")
@@ -1520,138 +1530,152 @@ def process_documents():
             else:
                 print(f"Skipping unsupported file: {file_path} (extension: {ext})")
 
-                if not contract_files:
-                    print(f"No supported legal documents found in {contracts_folder} folder.")
-                    print("Supported formats: PDF, DOCX, TXT")
-                    # Try a direct file listing as a fallback
-                    print("\nAttempting direct file listing:")
-                    try:
-                        dir_contents = os.listdir(contracts_folder)
-                        print(f"Directory contents of {contracts_folder}:")
-                        for item in dir_contents:
-                            item_path = os.path.join(contracts_folder, item)
-                            if os.path.isfile(item_path):
-                                print(f"  File: {item}")
-                                # Check if it's a supported file but was missed somehow
-                                ext = os.path.splitext(item)[1].lower()
-                                if ext in ['.pdf', '.docx', '.txt']:
-                                    print(f"  Found missed supported file: {item_path}")
-                                    contract_files.append(item_path)
-                            elif os.path.isdir(item_path):
-                                print(f"  Directory: {item}/")
-                    except Exception as e:
-                        print(f"Error listing directory: {e}")
+    if not contract_files:
+        print(f"No supported legal documents found in {contracts_folder} folder.")
+        print("Supported formats: PDF, DOCX, TXT")
+        # Try a direct file listing as a fallback
+        print("\nAttempting direct file listing:")
+        try:
+            dir_contents = os.listdir(contracts_folder)
+            print(f"Directory contents of {contracts_folder}:")
+            for item in dir_contents:
+                item_path = os.path.join(contracts_folder, item)
+                if os.path.isfile(item_path):
+                    print(f"  File: {item}")
+                    # Check if it's a supported file but was missed somehow
+                    ext = os.path.splitext(item)[1].lower()
+                    if ext in ['.pdf', '.docx', '.txt']:
+                        print(f"  Found missed supported file: {item_path}")
+                        contract_files.append(item_path)
+                elif os.path.isdir(item_path):
+                    print(f"  Directory: {item}/")
+        except Exception as e:
+            print(f"Error listing directory: {e}")
 
-                    if not contract_files:
-                        return
+        if not contract_files:
+            return None
 
-                print(f"Found {len(contract_files)} legal document(s) to process:")
-                for i, file_path in enumerate(contract_files):
-                    print(f"  {i + 1}. {file_path}")
+    print(f"Found {len(contract_files)} legal document(s) to process:")
+    for i, file_path in enumerate(contract_files):
+        print(f"  {i + 1}. {file_path}")
 
-                # Process each document
-                all_results = {}
-                for i, file_path in enumerate(contract_files):
-                    doc_id = f"doc_{i + 1:03d}"
-                    filename = os.path.basename(file_path)
+    # Process each document
+    all_results = {}
+    for i, file_path in enumerate(contract_files):
+        doc_id = f"doc_{i + 1:03d}"
+        filename = os.path.basename(file_path)
 
-                    print(f"\nProcessing legal document {i + 1}/{len(contract_files)}: {filename}")
+        print(f"\nProcessing legal document {i + 1}/{len(contract_files)}: {filename}")
 
-                    try:
-                        # Process the document
-                        print(f"Extracting and processing legal document...")
-                        processed_doc = document_processor.process_document(file_path, doc_id)
+        try:
+            # Process the document
+            print(f"Extracting and processing legal document...")
+            processed_doc = document_processor.process_document(file_path, doc_id)
 
-                        # Store chunks in ChromaDB
-                        print(f"Storing legal document chunks in ChromaDB...")
-                        storage_result = chroma_storage.add_texts(
-                            processed_doc["chunks"],
-                            processed_doc["metadatas"],
-                            processed_doc["ids"]
-                        )
+            # Store chunks in ChromaDB
+            print(f"Storing legal document chunks in ChromaDB...")
+            storage_result = chroma_storage.add_texts(
+                processed_doc["chunks"],
+                processed_doc["metadatas"],
+                processed_doc["ids"]
+            )
 
-                        print(f"Legal document processing result: {storage_result}")
+            print(f"Legal document processing result: {storage_result}")
 
-                        # Generate summary and analysis
-                        print("Generating legal document summary...")
-                        summary = document_processor.summarize(processed_doc["text"])
+            # Generate summary and analysis
+            print("Generating legal document summary...")
+            summary = document_processor.summarize(processed_doc["text"])
 
-                        print("Generating legal document analysis...")
-                        analysis = document_processor.analyze(processed_doc["text"])
+            print("Generating legal document analysis...")
+            analysis = document_processor.analyze(processed_doc["text"])
 
-                        # Store summary in ChromaDB
-                        print("Storing legal document summary in ChromaDB...")
-                        summary_result = chroma_storage.add_summary(
-                            doc_id=doc_id,
-                            source=file_path,
-                            filename=filename,
-                            summary=summary,
-                            analysis=analysis
-                        )
+            # Store summary in ChromaDB
+            print("Storing legal document summary in ChromaDB...")
+            summary_result = chroma_storage.add_summary(
+                doc_id=doc_id,
+                source=file_path,
+                filename=filename,
+                summary=summary,
+                analysis=analysis
+            )
 
-                        print(f"Legal summary storage result: {summary_result}")
+            print(f"Legal summary storage result: {summary_result}")
 
-                        # Store results
-                        results = {
-                            "filename": filename,
-                            "processing": storage_result,
-                            "summary": summary,
-                            "analysis": analysis,
-                            "summary_storage": summary_result
-                        }
+            # Store results
+            results = {
+                "filename": filename,
+                "processing": storage_result,
+                "summary": summary,
+                "analysis": analysis,
+                "summary_storage": summary_result
+            }
 
-                        all_results[doc_id] = results
+            all_results[doc_id] = results
 
-                        # Save results to file
-                        results_folder = "/home/cdsw/02_application/results"
-                        if not os.path.exists(results_folder):
-                            print(f"Creating results folder: {results_folder}")
-                            os.makedirs(results_folder)
+            # Save results to file
+            results_folder = "/home/cdsw/02_application/results"
+            if not os.path.exists(results_folder):
+                print(f"Creating results folder: {results_folder}")
+                os.makedirs(results_folder)
 
-                        summary_file = os.path.join(results_folder, f"{os.path.splitext(filename)[0]}_summary.txt")
-                        print(f"Saving legal summary and analysis to: {summary_file}")
+            summary_file = os.path.join(results_folder, f"{os.path.splitext(filename)[0]}_summary.txt")
+            print(f"Saving legal summary and analysis to: {summary_file}")
 
-                        with open(summary_file, 'w', encoding='utf-8') as f:
-                            f.write(f"Legal Document: {filename}\n")
-                            f.write(f"Processed as: {doc_id}\n\n")
-                            f.write(f"SUMMARY:\n{results['summary']}\n\n")
-                            f.write(f"ANALYSIS:\n{results['analysis']}")
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write(f"Legal Document: {filename}\n")
+                f.write(f"Processed as: {doc_id}\n\n")
+                f.write(f"SUMMARY:\n{results['summary']}\n\n")
+                f.write(f"ANALYSIS:\n{results['analysis']}")
 
-                        print(f"Successfully saved legal summary and analysis to {summary_file}")
+            print(f"Successfully saved legal summary and analysis to {summary_file}")
 
-                    except Exception as e:
-                        print(f"Error processing legal document {filename}: {str(e)}")
-                        import traceback
-                        print(traceback.format_exc())
-                        continue
+        except Exception as e:
+            print(f"Error processing legal document {filename}: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            continue
 
-                # Print summary of processing
-                print(f"\n==== Legal Document Processing Summary ====")
-                print(f"Successfully processed {len(all_results)} out of {len(contract_files)} legal documents.")
-                print(f"Results saved to the 'results' folder.")
-                print(f"Document chunks and summaries stored in ChromaDB.")
+    # Print summary of processing
+    print(f"\n==== Legal Document Processing Summary ====")
+    print(f"Successfully processed {len(all_results)} out of {len(contract_files)} legal documents.")
+    print(f"Results saved to the 'results' folder.")
+    print(f"Document chunks and summaries stored in ChromaDB.")
 
-                print("\n========== LEGAL DOCUMENT PROCESSING COMPLETED ==========\n")
-                return all_results
+    print("\n========== LEGAL DOCUMENT PROCESSING COMPLETED ==========\n")
+    return all_results
 
-            def main():
-                """Main function."""
-                print("Legal Document Processing System")
-                print("---------------------------------------------")
-                print("This system will process all legal documents in the 'contracts' folder (including subfolders).")
-                print(f"Current working directory: {os.getcwd()}")
 
-                try:
-                    print("About to start legal document processing")
-                    process_documents()
-                    print("Legal document processing completed successfully.")
-                except Exception as e:
-                    print(f"Error during legal document processing: {str(e)}")
-                    import traceback
-                    print(traceback.format_exc())
-                    print("Please check the error message and try again.")
+def main():
+    """Main function."""
+    print("Legal Document Processing System")
+    print("---------------------------------------------")
+    print("This system will process all legal documents in the 'contracts' folder (including subfolders).")
+    print(f"Current working directory: {os.getcwd()}")
 
-            if __name__ == "__main__":
-                print("Legal document processing script is starting...")
-                main()
-                print("Legal document processing script has finished.")
+    # Verify YAML files exist at hardcoded locations
+    print(f"Verifying YAML files...")
+    if not os.path.exists(AGENTS_YAML_PATH):
+        print(f"WARNING: Agents YAML file not found at {AGENTS_YAML_PATH}")
+    else:
+        print(f"Found agents YAML at {AGENTS_YAML_PATH}")
+
+    if not os.path.exists(TASKS_YAML_PATH):
+        print(f"WARNING: Tasks YAML file not found at {TASKS_YAML_PATH}")
+    else:
+        print(f"Found tasks YAML at {TASKS_YAML_PATH}")
+
+    try:
+        print("About to start legal document processing")
+        process_documents()
+        print("Legal document processing completed successfully.")
+    except Exception as e:
+        print(f"Error during legal document processing: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        print("Please check the error message and try again.")
+
+
+if __name__ == "__main__":
+    print("Legal document processing script is starting...")
+    main()
+    print("Legal document processing script has finished.")
