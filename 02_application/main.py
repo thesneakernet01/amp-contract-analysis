@@ -102,90 +102,59 @@ class ChromaDBStorage:
         print(f"Chunks collection: {chunks_collection}")
         print(f"Summaries collection: {summaries_collection}")
 
+        # Debugging ChromaDB version
+        import chromadb
+        print(f"ChromaDB version: {chromadb.__version__}")
+
+        # Ensure the directory exists
+        os.makedirs(db_path, exist_ok=True)
+        print(f"ChromaDB directory status: exists={os.path.exists(db_path)}, is_dir={os.path.isdir(db_path)}")
+
+        # List contents of the directory
+        try:
+            contents = os.listdir(db_path)
+            print(f"ChromaDB directory contents: {contents}")
+        except Exception as e:
+            print(f"Error listing ChromaDB directory: {e}")
+
         self.db_path = db_path
         self.chunks_collection_name = chunks_collection
         self.summaries_collection_name = summaries_collection
 
-        # Create directory if it doesn't exist
-        os.makedirs(db_path, exist_ok=True)
-        print(f"ChromaDB directory exists: {os.path.exists(db_path)}")
-
-        # Initialize ChromaDB client
-        self.client = chromadb.PersistentClient(path=db_path)
-        print("ChromaDB client initialized")
-
-        # Create embedding function - USING ONLY LOCAL MODELS
+        # Initialize ChromaDB client with proper error handling
         try:
-            # First try to use SentenceTransformer with custom cache path
-            logger.info("Attempting to initialize SentenceTransformerEmbeddingFunction")
-            self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="all-MiniLM-L6-v2"
-            )
-            logger.info("Successfully created embedding function using SentenceTransformers")
-            print("Embedding function created (using SentenceTransformers)")
+            self.client = chromadb.PersistentClient(path=db_path)
+            print("Successfully initialized ChromaDB client with PersistentClient")
+
+            # List all collections
+            collections = self.client.list_collections()
+            collection_names = [c.name for c in collections]
+            print(f"Existing collections: {collection_names}")
         except Exception as e:
-            logger.warning(f"Failed to load SentenceTransformer: {e}")
-            print(f"Warning: Failed to load SentenceTransformer: {e}")
-
-            # Try to install sentence-transformers if not already installed
-            try:
-                logger.info("Attempting to install sentence-transformers package")
-                import subprocess
-                subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", "sentence-transformers", "--no-cache-dir"])
-                logger.info("Successfully installed sentence-transformers package")
-
-                # Try again with the newly installed package
-                try:
-                    from sentence_transformers import SentenceTransformer
-                    logger.info("Attempting to initialize SentenceTransformer after installation")
-                    self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-                        model_name="all-MiniLM-L6-v2"
-                    )
-                    logger.info("Successfully created embedding function after installation")
-                    print("Embedding function created (using SentenceTransformers after installation)")
-                except Exception as e2:
-                    logger.warning(f"Still failed to load SentenceTransformer after installation: {e2}")
-                    print(f"Still failed after installation: {e2}")
-                    print("Falling back to DefaultEmbeddingFunction")
-                    self.ef = embedding_functions.DefaultEmbeddingFunction()
-            except Exception as install_error:
-                logger.warning(f"Failed to install sentence-transformers: {install_error}")
-                print(f"Failed to install sentence-transformers: {install_error}")
-                print("Falling back to DefaultEmbeddingFunction")
-                # Fallback to default embedding function if SentenceTransformer fails
-                self.ef = embedding_functions.DefaultEmbeddingFunction()
+            print(f"Error initializing ChromaDB: {e}")
+            raise ValueError(f"Failed to initialize ChromaDB client: {e}")
 
         # Get or create chunks collection
         try:
-            self.chunks_collection = self.client.get_collection(
+            self.chunks_collection = self.client.get_or_create_collection(
                 name=chunks_collection,
-                embedding_function=self.ef
+                embedding_function=self.ef  # This assumes self.ef is defined earlier
             )
-            print(f"Retrieved existing chunks collection: {chunks_collection}")
-        except:
-            print(f"Chunks collection not found, creating: {chunks_collection}")
-            self.chunks_collection = self.client.create_collection(
-                name=chunks_collection,
-                embedding_function=self.ef
-            )
-            print(f"Created new chunks collection: {chunks_collection}")
+            print(f"Successfully got or created chunks collection: {chunks_collection}")
+        except Exception as e:
+            print(f"Error getting or creating chunks collection: {e}")
+            raise ValueError(f"Failed to initialize chunks collection: {e}")
 
         # Get or create summaries collection
         try:
-            self.summaries_collection = self.client.get_collection(
+            self.summaries_collection = self.client.get_or_create_collection(
                 name=summaries_collection,
-                embedding_function=self.ef
+                embedding_function=self.ef  # This assumes self.ef is defined earlier
             )
-            print(f"Retrieved existing summaries collection: {summaries_collection}")
-        except:
-            print(f"Summaries collection not found, creating: {summaries_collection}")
-            self.summaries_collection = self.client.create_collection(
-                name=summaries_collection,
-                embedding_function=self.ef
-            )
-            print(f"Created new summaries collection: {summaries_collection}")
-
+            print(f"Successfully got or created summaries collection: {summaries_collection}")
+        except Exception as e:
+            print(f"Error getting or creating summaries collection: {e}")
+            raise ValueError(f"Failed to initialize summaries collection: {e}")
     def add_texts(self, texts: List[str], metadatas: List[Dict[str, Any]], ids: List[str]):
         """Add texts to the chunks collection."""
         print(f"Adding {len(texts)} chunks to ChromaDB collection {self.chunks_collection_name}")

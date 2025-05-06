@@ -58,94 +58,66 @@ def search_chromadb(query: str, db_path: str = "/home/cdsw/02_application/chroma
         # Make sure the DB path exists
         import os
         os.makedirs(db_path, exist_ok=True)
+        print(f"Using ChromaDB path: {os.path.abspath(db_path)}")
 
-        # Initialize client with more explicit settings
+        # Initialize client correctly
+        import chromadb
+        print(f"ChromaDB version: {chromadb.__version__}")
+
         try:
-            # Try the new API first
+            # Get client instance
             client = chromadb.PersistentClient(path=db_path)
             print(f"Successfully connected to ChromaDB at {db_path}")
-        except Exception as e1:
-            print(f"Error with new ChromaDB API: {e1}")
-            # Fall back to older API if needed
-            try:
-                client = chromadb.Client(chromadb.Settings(
-                    chroma_db_impl="duckdb+parquet",
-                    persist_directory=db_path
-                ))
-                print(f"Successfully connected to ChromaDB using fallback method")
-            except Exception as e2:
-                print(f"Error with fallback ChromaDB connection: {e2}")
-                return f"Could not connect to ChromaDB: {e1} / {e2}"
 
-        # Try to get collection with error handling
-        try:
-            # Check if collection exists first
+            # List existing collections
             all_collections = client.list_collections()
-            collection_exists = any(c.name == collection_name for c in all_collections)
+            collection_names = [c.name for c in all_collections]
+            print(f"Existing collections: {collection_names}")
 
-            if collection_exists:
+            # Check if our collection exists
+            if collection_name in collection_names:
+                print(f"Collection '{collection_name}' exists, retrieving it")
                 collection = client.get_collection(name=collection_name)
-                print(f"Retrieved existing collection: {collection_name}")
             else:
-                # Collection doesn't exist, create it
-                print(f"Collection {collection_name} not found, creating it")
-                # Try different embedding approaches
-                try:
-                    # First try SentenceTransformer
-                    from chromadb.utils import embedding_functions
-                    ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-                        model_name="all-MiniLM-L6-v2"
-                    )
-                    collection = client.create_collection(
-                        name=collection_name,
-                        embedding_function=ef
-                    )
-                except Exception as e:
-                    print(f"Error with SentenceTransformer: {e}, using default embedding")
-                    # Fall back to default embedding
-                    collection = client.create_collection(name=collection_name)
+                print(f"Collection '{collection_name}' doesn't exist, this may be expected")
+                print("You may need to process documents first to create the collection")
+                return f"No collection named '{collection_name}' found. Try processing documents first."
 
-                print(f"Created new collection: {collection_name}")
-        except Exception as e:
-            print(f"Error accessing or creating collection: {e}")
-            return f"Error with ChromaDB collection: {e}"
-
-        # Query the collection with better error handling
-        try:
+            # Query the collection
             results = collection.query(
                 query_texts=[query],
                 n_results=n_results
             )
 
-            # Validate results structure
-            if not results or "ids" not in results or not results["ids"]:
-                return "No results found in ChromaDB for this query."
-
             # Format results for readability
             formatted_results = ""
-            for i, doc_id in enumerate(results["ids"][0]):
-                formatted_results += f"Document {i + 1}:\n"
-                formatted_results += f"ID: {doc_id}\n"
+            if results and "ids" in results and len(results["ids"]) > 0 and len(results["ids"][0]) > 0:
+                for i, doc_id in enumerate(results["ids"][0]):
+                    formatted_results += f"Document {i + 1}:\n"
+                    formatted_results += f"ID: {doc_id}\n"
 
-                if "metadatas" in results and results["metadatas"] and len(results["metadatas"][0]) > i:
-                    metadata = results["metadatas"][0][i]
-                    for k, v in metadata.items():
-                        formatted_results += f"{k}: {v}\n"
+                    if "metadatas" in results and len(results["metadatas"]) > 0 and len(results["metadatas"][0]) > i:
+                        metadata = results["metadatas"][0][i]
+                        for k, v in metadata.items():
+                            formatted_results += f"{k}: {v}\n"
 
-                if "documents" in results and results["documents"] and len(results["documents"][0]) > i:
-                    doc_text = results["documents"][0][i]
-                    formatted_results += f"Text: {doc_text[:500]}...\n\n"
-                else:
-                    formatted_results += "Text: [No text available]\n\n"
+                    if "documents" in results and len(results["documents"]) > 0 and len(results["documents"][0]) > i:
+                        doc_text = results["documents"][0][i]
+                        formatted_results += f"Text: {doc_text[:500]}...\n\n"
+                    else:
+                        formatted_results += "Text: [No text available]\n\n"
 
-            return formatted_results
+                return formatted_results
+            else:
+                return "No results found in ChromaDB for this query."
+
         except Exception as e:
-            print(f"Error querying ChromaDB: {e}")
-            return f"Error querying ChromaDB: {e}"
+            print(f"ChromaDB operation error: {e}")
+            return f"Error with ChromaDB operations: {str(e)}"
+
     except Exception as e:
         print(f"ChromaDB search error: {e}")
         return f"Error retrieving documents: {str(e)}"
-
 
 @tool("Document Analysis Tool")
 def analyze_text(query: str = None) -> str:
