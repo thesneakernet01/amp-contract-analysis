@@ -399,17 +399,26 @@ class CrewAIDocumentProcessor:
 
                     # Create the appropriate tool
                     if tool_name == "ChromaDBRetrievalTool":
-                        db_path = tool_args.get("db_path", "/home/cdsw/02_application/chromadb")
-                        # Convert relative path if needed
-                        if db_path.startswith("./"):
-                            db_path = db_path.replace("./", "/home/cdsw/02_application/")
-                        collection_name = tool_args.get("collection_name", "document_chunks")
-                        tools.append(ChromaDBRetrievalTool(db_path=db_path, collection_name=collection_name))
+                        from crewai.tools import Tool
+                        from crew_tools import chromadb_tool
+
+                        # Create a CrewAI Tool using our function
+                        tools.append(Tool(
+                            name="ChromaDBRetrievalTool",
+                            description="Retrieves documents from ChromaDB based on queries",
+                            func=chromadb_tool
+                        ))
 
                     elif tool_name == "OllamaAnalysisTool":
-                        max_length = tool_args.get("max_length", 5000)
-                        # Use OpenAI model instead of Ollama
-                        tools.append(OllamaAnalysisTool(max_length=max_length, model=self.model))
+                        from crewai.tools import Tool
+                        from crew_tools import analysis_tool
+
+                        # Create a CrewAI Tool using our function
+                        tools.append(Tool(
+                            name="OllamaAnalysisTool",
+                            description="Analyzes text using OpenAI LLM",
+                            func=analysis_tool
+                        ))
 
         # Create agent
         try:
@@ -489,29 +498,24 @@ class CrewAIDocumentProcessor:
                 raise ValueError(f"Failed to create task {task_type}: {e2}")
 
     def _set_tool_data(self, agent, text, task=None):
-        """Set text data in tools for an agent."""
+        """Set text data for analysis."""
         if not agent or not text:
             return
 
-        for tool in agent.tools:
-            if isinstance(tool, OllamaAnalysisTool):
-                tool.text_to_analyze = text
-                if task:
-                    tool.current_task = task
-                print(f"Set text in OllamaAnalysisTool for agent {agent.role}")
-                break
+        # Use the global helper function
+        from crew_tools import set_text_for_analysis
+        set_text_for_analysis(text, task)
+        print(f"Set text for analysis, task: {task}")
 
     def _reset_tool_data(self, agent):
-        """Reset text data in tools for an agent."""
+        """Reset text data for analysis."""
         if not agent:
             return
 
-        for tool in agent.tools:
-            if isinstance(tool, OllamaAnalysisTool):
-                tool.text_to_analyze = None
-                tool.current_task = None
-                print(f"Reset text in OllamaAnalysisTool for agent {agent.role}")
-                break
+        # Use the global helper function
+        from crew_tools import reset_analysis_data
+        reset_analysis_data()
+        print("Reset analysis data")
 
     def extract_text(self, file_path: str) -> str:
         """Extract text from various document formats."""
