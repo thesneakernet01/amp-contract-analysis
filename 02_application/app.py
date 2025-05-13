@@ -1623,13 +1623,17 @@ def save_settings_to_file():
     settings = {
         "openai_endpoint": st.session_state.openai_endpoint,
         "openai_api_key": st.session_state.openai_api_key,
-        "openai_model": st.session_state.openai_model
+        "openai_model": st.session_state.openai_model,
+        "model_provider": st.session_state.get("model_provider", "openai")
     }
+
+    # Save custom provider if it exists
+    if hasattr(st.session_state, "custom_provider"):
+        settings["custom_provider"] = st.session_state.custom_provider
 
     try:
         os.makedirs("config", exist_ok=True)
         with open("config/settings.json", "w") as f:
-            # Actually save the API key this time
             json.dump(settings, f, indent=2)
         return True
     except Exception as e:
@@ -1649,16 +1653,18 @@ def load_settings_from_file():
                     st.session_state.openai_endpoint = settings["openai_endpoint"]
                 if "openai_model" in settings:
                     st.session_state.openai_model = settings["openai_model"]
-                # Actually load the API key
                 if "openai_api_key" in settings:
                     st.session_state.openai_api_key = settings["openai_api_key"]
+                if "model_provider" in settings:
+                    st.session_state.model_provider = settings["model_provider"]
+                if "custom_provider" in settings:
+                    st.session_state.custom_provider = settings["custom_provider"]
 
             return True
         return False
     except Exception as e:
         print(f"Error loading settings: {e}")
         return False
-
 
 def test_crewai_connection():
     """Test connection to OpenAI API via CrewAI."""
@@ -1789,62 +1795,104 @@ def display_settings_tab():
     """Display settings tab for OpenAI API configuration."""
     st.header("System Settings")
 
-    with st.expander("OpenAI API Settings", expanded=True):
+    with st.expander("API Settings", expanded=True):
         st.info(
-            "Configure OpenAI API settings for legal document analysis. An API key is required to process documents.")
+            "Configure API settings for legal document analysis. For Cloudera ML, use your CDP token as the API key and the serving endpoint URL.")
 
-        # OpenAI endpoint
+        # API endpoint
         openai_endpoint = st.text_input(
-            "OpenAI API Endpoint",
+            "API Endpoint",
             value=st.session_state.openai_endpoint,
-            help="The endpoint URL for OpenAI API (or compatible service)"
+            help="The endpoint URL for API (e.g., https://ml-2dad9e26-62f.go01-dem.ylcu-atmi.cloudera.site/namespaces/serving-default/endpoints/contract-analysis-inference/v1)"
         )
 
-        # OpenAI API key
+        # API key with explanation for CDP token
+        st.markdown("""
+        **API Key / CDP Token**  
+        For Cloudera ML, load your CDP token with: `json.load(open("/tmp/jwt"))["access_token"]`
+        """)
+
         openai_api_key = st.text_input(
-            "OpenAI API Key",
+            "API Key / CDP Token",
             value=st.session_state.openai_api_key,
             type="password",
-            help="Your OpenAI API key (required for document processing)"
+            help="Your API key or CDP access token (required for document processing)"
         )
 
-        # OpenAI model selection
-        openai_models = [
-            "gpt-4o",
-            "gpt-4-turbo",
-            "gpt-4",
-            "gpt-3.5-turbo",
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307"
-        ]
+        # Model ID with explanation
+        st.markdown("""
+        **Model ID**  
+        For Cloudera ML with Llama models, use: `openai/meta/llama-3.1-8b-instruct`  
+        (Note: include the 'openai/' prefix for CrewAI compatibility)
+        """)
 
-        openai_model = st.selectbox(
-            "OpenAI/Compatible Model",
-            options=openai_models,
-            index=openai_models.index(
-                st.session_state.openai_model) if st.session_state.openai_model in openai_models else 0,
-            help="Select the model to use for legal document analysis"
+        openai_model = st.text_input(
+            "Model ID",
+            value=st.session_state.openai_model,
+            help="The model ID to use (e.g., openai/meta/llama-3.1-8b-instruct)"
         )
+
+        # Add checkbox for loading CDP token
+        if st.checkbox("Load CDP Token from /tmp/jwt", help="Automatically load CDP token from /tmp/jwt file"):
+            try:
+                import json
+                token_data = json.load(open("/tmp/jwt"))
+                if "access_token" in token_data:
+                    openai_api_key = token_data["access_token"]
+                    st.success("CDP token loaded successfully!")
+                else:
+                    st.error("Failed to find access_token in /tmp/jwt")
+            except Exception as e:
+                st.error(f"Failed to load CDP token: {e}")
 
         # Add a warning if no API key is set
-        if not st.session_state.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
-            st.warning("⚠️ No OpenAI API key detected. You must provide an API key to process documents.")
+        if not openai_api_key and not os.environ.get("OPENAI_API_KEY"):
+            st.warning("⚠️ No API key detected. You must provide an API key to process documents.")
 
         # Save settings button
+        # Under the save settings button handler
         if st.button("Save API Settings"):
+            # Clean the endpoint URL to avoid path duplication
+            if openai_endpoint.endswith("/chat/completions"):
+                openai_endpoint = openai_endpoint.replace("/chat/completions", "")
+                st.info(f"Removed '/chat/completions' from endpoint URL to avoid duplication")
+
+            # Also check for v1/chat/completions pattern
+            if "/v1/chat/completions" in openai_endpoint:
+                openai_endpoint = openai_endpoint.replace("/chat/completions", "")
+                st.info(f"Removed '/chat/completions' from endpoint URL to avoid duplication")
+
             st.session_state.openai_endpoint = openai_endpoint
             st.session_state.openai_api_key = openai_api_key
+
+            # Make sure the model has the 'openai/' prefix for compatibility
+            if not openai_model.startswith("openai/") and "/" in openai_model:
+                openai_model = f"openai/{openai_model}"
+                st.info(f"Added 'openai/' prefix to model name for compatibility: {openai_model}")
+            elif not openai_model.startswith("openai/"):
+                openai_model = f"openai/{openai_model}"
+                st.info(f"Added 'openai/' prefix to model name for compatibility: {openai_model}")
+
             st.session_state.openai_model = openai_model
 
             # Save settings to a config file
             save_settings_to_file()
 
             # Set the API key in environment variable immediately
-            if ensure_api_key():
-                st.success("Settings saved successfully! OpenAI API key configured.")
-            else:
-                st.warning("Settings saved, but no API key provided. Document processing will not work.")
+            os.environ["OPENAI_API_KEY"] = openai_api_key
+            os.environ["OPENAI_API_BASE"] = openai_endpoint
+            os.environ["OPENAI_MODEL_NAME"] = openai_model
+
+            # Force global api_key_configured to true
+            global api_key_configured
+            api_key_configured = True
+
+            # Force recreation of document processor with new settings
+            try:
+                document_processor = get_document_processor()
+                st.success("Settings saved successfully! API configured and document processor updated.")
+            except Exception as e:
+                st.warning(f"Settings saved, but couldn't reinitialize document processor: {str(e)}")
 
     with st.expander("CrewAI Configuration", expanded=True):
         st.info("View your CrewAI agents and tasks configurations for legal document analysis")
@@ -1865,9 +1913,9 @@ def display_settings_tab():
             st.warning("Could not load tasks.yaml")
 
         # Test connection button
-        if st.button("Test OpenAI Connection"):
+        if st.button("Test API Connection"):
             if not st.session_state.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
-                st.error("OpenAI API key is required. Please enter your API key above.")
+                st.error("API key is required. Please enter your API key above.")
             else:
                 test_result = test_crewai_connection()
                 if test_result["success"]:
@@ -1939,7 +1987,6 @@ Date: ___________________
                     st.success(f"Created sample contract: {sample_file}")
                 except Exception as e:
                     st.error(f"Failed to create sample contract: {e}")
-
 
 ###########################################
 # STREAMLIT UI

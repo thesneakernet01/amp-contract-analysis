@@ -353,20 +353,49 @@ class CrewAIDocumentProcessor:
         try:
             # Make sure we have an API key
             if not self.api_key:
-                raise ValueError("OpenAI API key is required")
+                raise ValueError("API key is required")
 
-            self.llm = ChatOpenAI(
+            # Clean the base URL to avoid path duplication
+            base_url = self.base_url
+            if base_url.endswith("/chat/completions"):
+                base_url = base_url.replace("/chat/completions", "")
+                print(f"Removed '/chat/completions' from base_url to avoid duplication")
+
+            # Also check for v1/chat/completions pattern
+            if "/v1/chat/completions" in base_url:
+                base_url = base_url.replace("/chat/completions", "")
+                print(f"Removed '/chat/completions' from base_url to avoid duplication")
+
+            # Use CrewAI's LLM class directly with the documented approach
+            from crewai import LLM
+
+            # Make sure model starts with "openai/"
+            model_name = self.model
+            if not model_name.startswith("openai/"):
+                model_name = f"openai/{model_name}"
+                print(f"Added openai/ prefix to model name: {model_name}")
+
+            # Create the LLM with proper format
+            self.llm = LLM(
+                model=model_name,
+                base_url=base_url,  # Use the cleaned base_url
                 api_key=self.api_key,
-                base_url=self.base_url,
-                model=self.model,
                 temperature=0.2
             )
-            print(f"Initialized LLM: {self.model} at {self.base_url}")
+
+            # Also create a direct OpenAI client for use in methods that bypass CrewAI
+            from openai import OpenAI
+            self.openai_client = OpenAI(
+                base_url=base_url,  # Use the cleaned base_url
+                api_key=self.api_key,
+            )
+
+            print(f"Initialized LLM: {model_name} at {base_url}")
         except Exception as e:
             error_msg = f"Error initializing LLM: {e}"
             print(error_msg)
             self.llm = None
-            raise ValueError(f"Failed to initialize OpenAI LLM: {error_msg}")
+            raise ValueError(f"Failed to initialize LLM: {error_msg}")
 
     def _create_agent(self, agent_type: str) -> Agent:
         """Create a CrewAI agent from configuration."""
@@ -1093,7 +1122,7 @@ class CrewAIDocumentProcessor:
 
     def compare_with_summaries(self, new_text: str, summaries: List[Dict[str, Any]],
                                focus_areas: List[str] = None) -> str:
-        """Compare a new document with existing summaries using CrewAI."""
+        """Compare a new document with existing summaries using direct API call."""
         print(f"Comparing new document with {len(summaries)} existing summaries")
 
         if not focus_areas:
@@ -1111,92 +1140,139 @@ class CrewAIDocumentProcessor:
             # Limit summaries text length
             truncated_summaries_text = summaries_text[:5000] if len(summaries_text) > 5000 else summaries_text
 
-            # Get or create the document comparer agent
-            if "document_comparer" not in self.agents:
-                self.agents["document_comparer"] = self._create_agent("document_comparer")
+            # Try direct OpenAI call first
+            try:
+                # Extract model name without provider prefix
+                model_name = self.model
+                if "/" in model_name:
+                    parts = model_name.split("/")
+                    if len(parts) > 1:
+                        # If format is "openai/meta/llama-3.1", use the last two parts
+                        if len(parts) > 2:
+                            model_name = "/".join(parts[1:])
+                        else:
+                            model_name = parts[1]
 
-            # Set combined text in the tool
-            combined_text = f"NEW DOCUMENT:\n{truncated_new_text}\n\nEXISTING DOCUMENTS:\n{truncated_summaries_text}"
-            self._set_tool_data(self.agents["document_comparer"], combined_text, "compare")
+                # Create prompt for comparison
+                prompt = f"""
+                Compare the NEW DOCUMENT with the EXISTING DOCUMENTS, focusing on: {', '.join(focus_areas)}.
 
-            # Create description directly without using task configuration to avoid token limits
-            description = "Compare the following legal documents, focusing on: " + ", ".join(focus_areas) + ". "
-            description += "Identify key similarities and differences in legal terms, obligations, and rights. "
-            description += "Provide a well-structured analysis that highlights important legal distinctions. "
-            description += f"Document IDs: {','.join([summary.get('doc_id', f'doc_{i}') for i, summary in enumerate(summaries)])}"
-            description += "\n\nUse the OllamaAnalysisTool to process the documents for comparison."
+                Identify key similarities and differences in legal terms, obligations, and rights.
+                Provide a well-structured analysis that highlights important legal distinctions.
 
-            # Create agent and task directly
-            compare_task = Task(
-                description=description,
-                expected_output="A comprehensive legal comparison highlighting key similarities and differences",
-                agent=self.agents["document_comparer"]
-            )
+                NEW DOCUMENT:
+                {truncated_new_text}
 
-            # Create crew for comparison
-            crew = Crew(
-                agents=[self.agents["document_comparer"]],
-                tasks=[compare_task],
-                verbose=True,
-                process=Process.sequential
-            )
+                EXISTING DOCUMENTS:
+                {truncated_summaries_text}
+                """
 
-            # Execute the crew
-            result = crew.kickoff()
+                # Call OpenAI directly
+                response = self.openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a legal document comparison specialist."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,
+                    max_tokens=1500
+                )
 
-            # Reset tool data
-            self._reset_tool_data(self.agents["document_comparer"])
+                comparison_text = response.choices[0].message.content
+                print(f"Got direct document comparison response")
 
-            # Convert CrewOutput to string
-            comparison_text = str(result) if hasattr(result, '__str__') else "Error: Unable to convert result to string"
+                return comparison_text
+            except Exception as direct_call_error:
+                print(f"Error with direct OpenAI call: {direct_call_error}")
+                # Fall back to CrewAI approach
 
-            # Format the output if it looks like JSON
-            if comparison_text.strip().startswith('{') or comparison_text.strip().startswith('['):
-                try:
-                    import json
-                    data = json.loads(comparison_text)
+                # Get or create the document comparer agent
+                if "document_comparer" not in self.agents:
+                    self.agents["document_comparer"] = self._create_agent("document_comparer")
 
-                    # Convert JSON to a more readable format
-                    formatted_text = "# Document Comparison Results\n\n"
+                # Set combined text in the tool
+                combined_text = f"NEW DOCUMENT:\n{truncated_new_text}\n\nEXISTING DOCUMENTS:\n{truncated_summaries_text}"
+                self._set_tool_data(self.agents["document_comparer"], combined_text, "compare")
 
-                    # Format according to expected structure
-                    if isinstance(data, dict):
-                        if "similarities" in data:
-                            formatted_text += "## Similarities\n\n"
-                            for item in data["similarities"]:
-                                formatted_text += f"- {item}\n"
-                            formatted_text += "\n"
+                # Create description directly without using task configuration to avoid token limits
+                description = "Compare the following legal documents, focusing on: " + ", ".join(focus_areas) + ". "
+                description += "Identify key similarities and differences in legal terms, obligations, and rights. "
+                description += "Provide a well-structured analysis that highlights important legal distinctions. "
+                description += f"Document IDs: {','.join([summary.get('doc_id', f'doc_{i}') for i, summary in enumerate(summaries)])}"
+                description += "\n\nUse the OllamaAnalysisTool to process the documents for comparison."
 
-                        if "differences" in data:
-                            formatted_text += "## Differences\n\n"
-                            for item in data["differences"]:
-                                formatted_text += f"- {item}\n"
-                            formatted_text += "\n"
+                # Create agent and task directly
+                compare_task = Task(
+                    description=description,
+                    expected_output="A comprehensive legal comparison highlighting key similarities and differences",
+                    agent=self.agents["document_comparer"]
+                )
 
-                        if "analysis" in data:
-                            formatted_text += "## Analysis\n\n"
-                            formatted_text += data["analysis"]
-                            formatted_text += "\n"
+                # Create crew for comparison
+                crew = Crew(
+                    agents=[self.agents["document_comparer"]],
+                    tasks=[compare_task],
+                    verbose=True,
+                    process=Process.sequential
+                )
 
-                        # Add any other sections
-                        for key, value in data.items():
-                            if key not in ["similarities", "differences", "analysis"]:
-                                formatted_text += f"## {key.replace('_', ' ').title()}\n\n"
-                                formatted_text += f"{value}\n\n"
+                # Execute the crew
+                result = crew.kickoff()
 
-                    return formatted_text
-                except:
-                    # If we can't parse as JSON, return the raw string
-                    pass
+                # Reset tool data
+                self._reset_tool_data(self.agents["document_comparer"])
 
-            return comparison_text
+                # Convert CrewOutput to string
+                comparison_text = str(result) if hasattr(result,
+                                                         '__str__') else "Error: Unable to convert result to string"
+
+                # Format the output if it looks like JSON
+                if comparison_text.strip().startswith('{') or comparison_text.strip().startswith('['):
+                    try:
+                        import json
+                        data = json.loads(comparison_text)
+
+                        # Convert JSON to a more readable format
+                        formatted_text = "# Document Comparison Results\n\n"
+
+                        # Format according to expected structure
+                        if isinstance(data, dict):
+                            if "similarities" in data:
+                                formatted_text += "## Similarities\n\n"
+                                for item in data["similarities"]:
+                                    formatted_text += f"- {item}\n"
+                                formatted_text += "\n"
+
+                            if "differences" in data:
+                                formatted_text += "## Differences\n\n"
+                                for item in data["differences"]:
+                                    formatted_text += f"- {item}\n"
+                                formatted_text += "\n"
+
+                            if "analysis" in data:
+                                formatted_text += "## Analysis\n\n"
+                                formatted_text += data["analysis"]
+                                formatted_text += "\n"
+
+                            # Add any other sections
+                            for key, value in data.items():
+                                if key not in ["similarities", "differences", "analysis"]:
+                                    formatted_text += f"## {key.replace('_', ' ').title()}\n\n"
+                                    formatted_text += f"{value}\n\n"
+
+                        return formatted_text
+                    except:
+                        # If we can't parse as JSON, return the raw string
+                        pass
+
+                return comparison_text
+
         except Exception as e:
             print(f"Error in compare_with_summaries method: {e}")
             import traceback
             traceback.print_exc()
             # Fallback if CrewAI fails
             return f"Error comparing documents: {str(e)}"
-
     def extract_legal_definitions(self, text: str) -> str:
         """Extract and analyze legal definitions from a document."""
         print(f"Extracting legal definitions, text length: {len(text)} characters")
@@ -1205,44 +1281,88 @@ class CrewAIDocumentProcessor:
         truncated_text = text[:5000] if len(text) > 5000 else text
 
         try:
-            # Get or create the legal terminology extractor agent
-            if "legal_terminology_extractor" not in self.agents:
-                self.agents["legal_terminology_extractor"] = self._create_agent("legal_terminology_extractor")
+            # Use direct OpenAI call to extract definitions
+            try:
+                # Extract model name without provider prefix
+                model_name = self.model
+                if "/" in model_name:
+                    parts = model_name.split("/")
+                    if len(parts) > 1:
+                        # If format is "openai/meta/llama-3.1", use the last two parts
+                        if len(parts) > 2:
+                            model_name = "/".join(parts[1:])
+                        else:
+                            model_name = parts[1]
 
-            # Set the text in the analysis tool
-            self._set_tool_data(self.agents["legal_terminology_extractor"], truncated_text, "extract_definitions")
+                # Create prompt for legal definitions
+                prompt = """
+                Extract and explain all defined legal terms from the following document text.
+                Identify inconsistencies in definitions and potential legal ambiguities.
 
-            # Create description directly without using task configuration
-            description = "Extract and explain all defined legal terms from the document text. "
-            description += "Identify inconsistencies in definitions and potential legal ambiguities. "
-            description += "Use the OllamaAnalysisTool to process the document text."
+                For each term, provide:
+                1. The term being defined
+                2. The definition provided in the document
+                3. Any potential ambiguities or issues with the definition
 
-            # Create task
-            extract_task = Task(
-                description=description,
-                expected_output="Glossary of legal terms with explanations and identified issues",
-                agent=self.agents["legal_terminology_extractor"]
-            )
+                Format your response clearly with the term followed by its definition.
 
-            # Create crew for extraction
-            crew = Crew(
-                agents=[self.agents["legal_terminology_extractor"]],
-                tasks=[extract_task],
-                verbose=True,
-                process=Process.sequential
-            )
+                Document text:
+                """ + truncated_text
 
-            # Execute the crew
-            result = crew.kickoff()
+                # Call OpenAI directly
+                response = self.openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a legal terminology specialist."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,
+                    max_tokens=1500
+                )
 
-            # Reset tool data
-            self._reset_tool_data(self.agents["legal_terminology_extractor"])
+                definitions_text = response.choices[0].message.content
+                print(f"Got direct legal definitions extraction response")
 
-            # Convert CrewOutput to string
-            definitions_text = str(result) if hasattr(result,
-                                                      '__str__') else "Error: Unable to convert result to string"
+                return definitions_text
+            except Exception as direct_call_error:
+                print(f"Error with direct OpenAI call: {direct_call_error}")
+                # Fall back to CrewAI approach
 
-            return definitions_text
+                # Get or create the legal terminology extractor agent
+                if "legal_terminology_extractor" not in self.agents:
+                    self.agents["legal_terminology_extractor"] = self._create_agent("legal_terminology_extractor")
+
+                # Set the text in the analysis tool
+                self._set_tool_data(self.agents["legal_terminology_extractor"], truncated_text, "extract_definitions")
+
+                # Create description directly without using task configuration
+                description = "Extract and explain all defined legal terms from the document text. "
+                description += "Identify inconsistencies in definitions and potential legal ambiguities. "
+                description += "Use the OllamaAnalysisTool to process the document text."
+
+                # Create task
+                extract_task = Task(
+                    description=description,
+                    expected_output="Glossary of legal terms with explanations and identified issues",
+                    agent=self.agents["legal_terminology_extractor"]
+                )
+
+                # Create crew for extraction
+                crew = Crew(
+                    agents=[self.agents["legal_terminology_extractor"]],
+                    tasks=[extract_task],
+                    verbose=True,
+                    process=Process.sequential
+                )
+
+                # Execute the crew
+                result = crew.kickoff()
+
+                # Reset tool data
+                self._reset_tool_data(self.agents["legal_terminology_extractor"])
+
+                # Convert CrewOutput to string
+                return str(result) if hasattr(result, '__str__') else "Error: Unable to convert result to string"
         except Exception as e:
             print(f"Error in extract_legal_definitions method: {e}")
             import traceback
@@ -1279,14 +1399,7 @@ class CrewAIDocumentProcessor:
         truncated_text = text[:max_chars] if len(text) > max_chars else text
 
         try:
-            # Get or create the legal risk assessor agent
-            if "legal_risk_assessor" not in self.agents:
-                self.agents["legal_risk_assessor"] = self._create_agent("legal_risk_assessor")
-
-            # Set the text in the analysis tool
-            self._set_tool_data(self.agents["legal_risk_assessor"], truncated_text, "assess_risks")
-
-            # Create a more specialized prompt
+            # Create a specialized prompt for risk assessment
             if is_farmout:
                 prompt = """
                 Perform a thorough risk assessment of this farmout agreement.
@@ -1303,7 +1416,7 @@ class CrewAIDocumentProcessor:
                 for category in risk_categories:
                     prompt += f"- {category.title()}\n"
 
-                prompt += "\nUse the OllamaAnalysisTool to access the document text."
+                prompt += "\n" + truncated_text
             else:
                 # Standard prompt for other legal documents
                 prompt = """
@@ -1320,93 +1433,75 @@ class CrewAIDocumentProcessor:
                 for i, category in enumerate(risk_categories):
                     prompt += f"{i + 1}. {category.title()} Risks\n"
 
-                prompt += "\nUse the OllamaAnalysisTool to access the document text."
+                prompt += "\n" + truncated_text
 
-            # Create task
-            risk_task = Task(
-                description=prompt,
-                expected_output="Structured legal risk assessment with severity and likelihood ratings",
-                agent=self.agents["legal_risk_assessor"]
-            )
-
-            # Create crew for risk assessment
-            crew = Crew(
-                agents=[self.agents["legal_risk_assessor"]],
-                tasks=[risk_task],
-                verbose=True,
-                process=Process.sequential
-            )
-
-            # Execute the crew
-            result = crew.kickoff()
-
-            # Reset tool data
-            self._reset_tool_data(self.agents["legal_risk_assessor"])
-
-            # Convert CrewOutput to string if needed
-            risk_text = str(result) if hasattr(result, '__str__') else "Error: Unable to convert result to string"
-
-            # Check if the response has proper formatting
-            if "Risk:" not in risk_text and ("no risks" not in risk_text.lower() and
-                                             "insufficient" not in risk_text.lower() and
-                                             "could not identify" not in risk_text.lower()):
-                print("Warning: Risk assessment missing proper format. Attempting to structure it.")
-
-                # Try to add proper formatting
-                lines = risk_text.split('\n')
-                structured_text = ""
-
-                # Look for paragraph breaks or numbered sections
-                sections = []
-                current_section = []
-
-                for line in lines:
-                    # If this looks like the start of a new risk (numbered or blank line before)
-                    if re.match(r'^\d+\.', line) or (not current_section and line.strip()):
-                        if current_section:
-                            sections.append('\n'.join(current_section))
-                            current_section = []
-                        current_section.append(line)
-                    elif not line.strip() and current_section:
-                        sections.append('\n'.join(current_section))
-                        current_section = []
-                    else:
-                        current_section.append(line)
-
-                # Add the last section
-                if current_section:
-                    sections.append('\n'.join(current_section))
-
-                # Structure each section
-                for i, section in enumerate(sections):
-                    if not section.strip():
-                        continue
-
-                    # Add a risk heading if missing
-                    if not section.lower().startswith('risk:'):
-                        # Try to extract a name from the first line
-                        first_line = section.split('\n')[0].strip()
-                        if first_line:
-                            structured_text += f"Risk: {first_line}\n"
+            # Use direct OpenAI call instead of CrewAI for risk assessment
+            try:
+                # Extract just the model name without the provider prefix
+                model_name = self.model
+                if "/" in model_name:
+                    parts = model_name.split("/")
+                    if len(parts) > 1:
+                        # If format is "openai/meta/llama-3.1", use the last two parts
+                        if len(parts) > 2:
+                            model_name = "/".join(parts[1:])
                         else:
-                            structured_text += f"Risk {i + 1}: Undefined Risk\n"
+                            model_name = parts[1]
 
-                        # Add default severity and likelihood if not found
-                        if 'severity' not in section.lower():
-                            structured_text += "Severity: Medium\n"
-                        if 'likelihood' not in section.lower():
-                            structured_text += "Likelihood: Medium\n"
+                print(f"Using model {model_name} for direct risk assessment")
 
-                        # Add the rest as explanation
-                        structured_text += f"Explanation: {section}\n\n"
-                    else:
-                        structured_text += section + "\n\n"
+                # Call OpenAI directly
+                response = self.openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a legal risk assessment expert."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,
+                    max_tokens=1500
+                )
 
-                # If we managed to structure it, use that instead
-                if "Risk:" in structured_text:
-                    risk_text = structured_text
+                risk_text = response.choices[0].message.content
+                print(f"Got direct risk assessment response, length: {len(risk_text)}")
 
-            return risk_text
+                return risk_text
+            except Exception as direct_call_error:
+                print(f"Error with direct OpenAI call: {direct_call_error}")
+                # Fall back to using CrewAI approach if direct call fails
+
+                # Get or create the legal risk assessor agent
+                if "legal_risk_assessor" not in self.agents:
+                    self.agents["legal_risk_assessor"] = self._create_agent("legal_risk_assessor")
+
+                # Create task
+                risk_task = Task(
+                    description=prompt,
+                    expected_output="Structured legal risk assessment with severity and likelihood ratings",
+                    agent=self.agents["legal_risk_assessor"]
+                )
+
+                # Create crew for risk assessment
+                crew = Crew(
+                    agents=[self.agents["legal_risk_assessor"]],
+                    tasks=[risk_task],
+                    verbose=True,
+                    process=Process.sequential
+                )
+
+                # Execute the crew
+                result = crew.kickoff()
+
+                # Reset tool data
+                try:
+                    from crew_tools import reset_analysis_data
+                    reset_analysis_data()
+                except:
+                    pass
+
+                # Convert CrewOutput to string if needed
+                risk_text = str(result) if hasattr(result, '__str__') else "Error: Unable to convert result to string"
+
+                return risk_text
         except Exception as e:
             error_msg = f"Error assessing legal risks: {str(e)}"
             print(error_msg)
@@ -1512,11 +1607,16 @@ def get_document_processor():
     # Check for OpenAI configuration
     config_path = "config/settings.json"
     api_key = None
+    model_provider = None
 
     # First check environment variable
     if os.environ.get("OPENAI_API_KEY"):
         api_key = os.environ.get("OPENAI_API_KEY")
         print("Using API key from environment variable")
+
+    if os.environ.get("LLM_PROVIDER"):
+        model_provider = os.environ.get("LLM_PROVIDER")
+        print(f"Using model provider from environment variable: {model_provider}")
 
     # Then check settings file
     try:
@@ -1529,6 +1629,11 @@ def get_document_processor():
                     api_key = settings.get("openai_api_key")
                     print("Using API key from settings file")
 
+                # If we didn't get a provider from environment, try settings
+                if not model_provider and settings.get("model_provider"):
+                    model_provider = settings.get("model_provider")
+                    print(f"Using model provider from settings file: {model_provider}")
+
                 # Get endpoint and model
                 endpoint = settings.get("openai_endpoint", "https://api.openai.com/v1")
                 model = settings.get("openai_model", "gpt-4o")
@@ -1536,6 +1641,8 @@ def get_document_processor():
             # Default values if no settings file
             endpoint = "https://api.openai.com/v1"
             model = "gpt-4o"
+            if not model_provider:
+                model_provider = "openai"
             print("No settings file found, using defaults")
 
         # Final check for API key
@@ -1546,26 +1653,37 @@ def get_document_processor():
                 if 'openai_api_key' in st.session_state and st.session_state.openai_api_key:
                     api_key = st.session_state.openai_api_key
                     print("Using API key from session state")
+                if 'model_provider' in st.session_state and not model_provider:
+                    model_provider = st.session_state.model_provider
+                    print(f"Using model provider from session state: {model_provider}")
             except:
                 pass
 
         # Check if we have an API key
         if not api_key:
-            raise ValueError("No OpenAI API key found in settings, environment variables, or session state.")
+            raise ValueError("No API key found in settings, environment variables, or session state.")
+
+        # Ensure we have a model provider
+        if not model_provider:
+            model_provider = "openai"  # Default to OpenAI
+            print(f"Using default model provider: {model_provider}")
+
+        # Adjust model name if needed for litellm
+        if model_provider != "openai" and not model.startswith(f"{model_provider}/"):
+            model = f"{model_provider}/{model}"
+            print(f"Adjusted model name for litellm: {model}")
 
         # Create the processor
-        print(f"Creating CrewAI processor with endpoint: {endpoint}, model: {model}")
-        # NOTE: Removed YAML paths from the constructor to use global constants
+        print(f"Creating CrewAI processor with endpoint: {endpoint}, model: {model}, provider: {model_provider}")
         return CrewAIDocumentProcessor(
             api_key=api_key,
             base_url=endpoint,
             model=model
         )
     except Exception as e:
-        print(f"Error setting up OpenAI document processor: {e}")
+        print(f"Error setting up document processor: {e}")
         raise ValueError(
-            f"Unable to initialize OpenAI document processor: {e}. Please configure an OpenAI API key in the Settings tab.")
-
+            f"Unable to initialize document processor: {e}. Please configure an API key in the Settings tab.")
 
 def load_yaml_file(file_path: str) -> Dict[str, Any]:
     """Load YAML file."""
