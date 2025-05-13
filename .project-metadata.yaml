@@ -8,9 +8,6 @@ prototype_version: 1.0
 date: "2025-02-03"
 
 environment_variables:
-    OPENAI_API_KEY:
-      default: ""
-      description: "OPENAI API Key for LLM Calls"
 
 runtimes:
   - editor: Jupyterlab
