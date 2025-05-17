@@ -1399,42 +1399,6 @@ class CrewAIDocumentProcessor:
         truncated_text = text[:max_chars] if len(text) > max_chars else text
 
         try:
-            # Create a specialized prompt for risk assessment
-            if is_farmout:
-                prompt = """
-                Perform a thorough risk assessment of this farmout agreement.
-                A farmout agreement is a contract where one company (farmor) assigns all or part of its working interest in an oil and gas lease to another company (farmee).
-
-                For each identified risk, provide the following format:
-                - Risk: [Clear name of the risk]
-                - Severity: [High, Medium, or Low]
-                - Likelihood: [High, Medium, or Low]
-                - Explanation: [Brief explanation]
-
-                Focus on these key risk categories:
-                """
-                for category in risk_categories:
-                    prompt += f"- {category.title()}\n"
-
-                prompt += "\n" + truncated_text
-            else:
-                # Standard prompt for other legal documents
-                prompt = """
-                Perform a detailed legal risk assessment of the document.
-
-                For each identified risk, provide the following in a clearly structured format:
-                - Risk: [Clear name of the risk]
-                - Severity: [High, Medium, or Low]
-                - Likelihood: [High, Medium, or Low]
-                - Explanation: [Brief explanation]
-
-                Focus on these risk categories:
-                """
-                for i, category in enumerate(risk_categories):
-                    prompt += f"{i + 1}. {category.title()} Risks\n"
-
-                prompt += "\n" + truncated_text
-
             # Use direct OpenAI call instead of CrewAI for risk assessment
             try:
                 # Extract just the model name without the provider prefix
@@ -1467,7 +1431,7 @@ class CrewAIDocumentProcessor:
                 return risk_text
             except Exception as direct_call_error:
                 print(f"Error with direct OpenAI call: {direct_call_error}")
-                # Fall back to using CrewAI approach if direct call fails
+                # Fall back to creating a direct Task and Crew
 
                 # Get or create the legal risk assessor agent
                 if "legal_risk_assessor" not in self.agents:
@@ -1491,14 +1455,7 @@ class CrewAIDocumentProcessor:
                 # Execute the crew
                 result = crew.kickoff()
 
-                # Reset tool data
-                try:
-                    from crew_tools import reset_analysis_data
-                    reset_analysis_data()
-                except:
-                    pass
-
-                # Convert CrewOutput to string if needed
+                # Convert CrewOutput to string
                 risk_text = str(result) if hasattr(result, '__str__') else "Error: Unable to convert result to string"
 
                 return risk_text

@@ -679,12 +679,37 @@ def analyze_text(query: str = None) -> str:
                     "explanation": "The document addresses intellectual property matters that could have significant implications for ownership and usage rights."
                 })
 
-            if len(risks) == 0:
+            if "dispute" in text_sample or "arbitration" in text_sample or "litigation" in text_sample:
                 risks.append({
-                    "name": "Incomplete Analysis Risk",
+                    "name": "Dispute Resolution",
+                    "severity": "Medium",
+                    "likelihood": "Medium",
+                    "explanation": "The document contains dispute resolution mechanisms that may impact how conflicts are resolved."
+                })
+
+            if "deadline" in text_sample or "time frame" in text_sample or "timeline" in text_sample:
+                risks.append({
+                    "name": "Timeline Compliance",
                     "severity": "Medium",
                     "likelihood": "High",
-                    "explanation": "This automated analysis may not have identified all risks present in the document. A thorough review by a legal professional is recommended."
+                    "explanation": "The document contains deadlines or timeframes that must be adhered to."
+                })
+
+            if "compliance" in text_sample or "regulation" in text_sample or "law" in text_sample:
+                risks.append({
+                    "name": "Regulatory Compliance",
+                    "severity": "High",
+                    "likelihood": "Medium",
+                    "explanation": "The document references legal or regulatory requirements that must be followed."
+                })
+
+            # If no specific risks found, add a generic entry
+            if len(risks) == 0:
+                risks.append({
+                    "name": "Document Analysis Required",
+                    "severity": "Medium",
+                    "likelihood": "Medium",
+                    "explanation": "This analysis couldn't identify specific risks in the document. A thorough review by a legal professional is recommended."
                 })
 
             # Format risks
@@ -694,7 +719,7 @@ def analyze_text(query: str = None) -> str:
                 result += f"Likelihood: {risk['likelihood']}\n"
                 result += f"Explanation: {risk['explanation']}\n\n"
 
-            result += "Note: This is an automated preliminary risk assessment. A detailed review by a qualified legal professional is strongly recommended for a comprehensive risk analysis."
+            result += "Note: This is an automated risk assessment based on keyword analysis. For a comprehensive assessment, please consult a qualified legal professional."
 
         elif task == "compare":
             result = "# Document Comparison Results\n\n"

@@ -761,7 +761,6 @@ def extract_legal_definitions(doc_id):
 
     return definitions
 
-
 @handle_openai_error
 def assess_legal_risks(doc_id):
     """Perform a legal risk assessment on a document with enhanced farmout agreement support."""
@@ -984,7 +983,6 @@ Explanation: The document doesn't provide enough information for a comprehensive
         print(traceback.format_exc())
         return error_msg
 
-
 def parse_risk_assessment(risk_text):
     """Parse risk assessment text into structured data for visualization with robust error handling."""
     risks = []
@@ -1138,7 +1136,6 @@ def parse_risk_assessment(risk_text):
         })
 
     return risks
-
 
 def create_risk_matrix(risks):
     """Create a risk matrix visualization for legal risks with improved farmout agreement support."""
